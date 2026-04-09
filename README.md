@@ -9,10 +9,17 @@ A personal Claude Code plugin marketplace.
 In a Claude Code session:
 
 ```
-/plugin marketplace add <TODO: your git URL or local path>
+/plugin marketplace add yun-sangho/sccm
 ```
 
-You can also use a local path directly:
+This resolves to `github.com/yun-sangho/sccm` and works for anyone (the repo is public). If your environment prefers an explicit URL, either of these also works:
+
+```
+/plugin marketplace add https://github.com/yun-sangho/sccm.git
+/plugin marketplace add git@github.com:yun-sangho/sccm.git
+```
+
+You can also install from a local clone during development:
 
 ```
 /plugin marketplace add ~/project/marketplace
@@ -23,6 +30,7 @@ You can also use a local path directly:
 ```
 /plugin install hooks-common@sccm
 /plugin install hooks-pnpm@sccm
+/plugin install hooks-worktree@sccm
 ```
 
 ### 3. Verify installation
@@ -47,7 +55,7 @@ Once installed, hooks activate automatically — no extra configuration needed.
 
 ```bash
 # Add marketplace
-/plugin marketplace add ~/project/marketplace
+/plugin marketplace add yun-sangho/sccm
 
 # Update marketplace (pick up new plugins)
 /plugin marketplace update
@@ -82,7 +90,7 @@ Adding this to your project's `.claude/settings.json` auto-registers the marketp
     "sccm": {
       "source": {
         "source": "url",
-        "url": "<TODO: your git URL>"
+        "url": "https://github.com/yun-sangho/sccm.git"
       }
     }
   },
@@ -149,6 +157,9 @@ marketplace/
 │   ├── hooks-common/          # Security guard
 │   ├── hooks-pnpm/            # Enforce pnpm
 │   └── hooks-worktree/        # Git worktree automation
+├── scripts/
+│   ├── bump.mjs               # Version bump for a single plugin
+│   └── verify-versions.mjs    # CI check — version consistency across files
 └── README.md
 ```
 
@@ -201,6 +212,51 @@ plugins/{name}/
 cd plugins/hooks-common && node --test scripts/__tests__/*.test.js
 cd plugins/hooks-pnpm && node --test scripts/__tests__/*.test.js
 cd plugins/hooks-worktree && node --test scripts/__tests__/*.test.js
+```
+
+## Versioning & releasing
+
+Each plugin keeps its SemVer in three places:
+
+1. `.claude-plugin/marketplace.json` — `plugins[name].version`
+2. `plugins/<name>/.claude-plugin/plugin.json` — `version`
+3. `plugins/<name>/package.json` — `version`
+
+All three must agree. Use the bump helper to update them atomically:
+
+```bash
+# Bump a single plugin
+node scripts/bump.mjs hooks-common patch       # 0.1.0 → 0.1.1
+node scripts/bump.mjs hooks-pnpm minor         # 0.1.1 → 0.2.0
+node scripts/bump.mjs hooks-worktree 1.0.0     # explicit version
+
+# Check that every plugin's three version fields are in sync
+node scripts/verify-versions.mjs
+```
+
+`verify-versions.mjs` exits non-zero on any mismatch and is suitable for pre-commit hooks or CI.
+
+Standard release flow:
+
+```bash
+# 1. Edit the plugin
+vim plugins/hooks-common/scripts/guard-bash.js
+
+# 2. Bump version (atomic across the three files)
+node scripts/bump.mjs hooks-common patch
+
+# 3. Test + verify
+cd plugins/hooks-common && node --test 'scripts/__tests__/*.test.js'
+cd ../.. && node scripts/verify-versions.mjs
+
+# 4. Commit + push
+git add -A
+git commit -m "hooks-common 0.1.1 — fix curl regex false positive"
+git push
+
+# 5. (Users) update their installation
+claude plugin marketplace update sccm
+claude plugin update hooks-common@sccm
 ```
 
 ## License
