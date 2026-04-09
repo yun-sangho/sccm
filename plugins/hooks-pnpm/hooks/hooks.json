@@ -1,0 +1,17 @@
+{
+  "description": "Sangho Claude Code Pnpm - pnpm 모노레포에서 npm 사용 차단",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/enforce-pnpm.js\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

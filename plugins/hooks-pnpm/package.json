@@ -1,0 +1,16 @@
+{
+  "name": "hooks-pnpm",
+  "version": "0.1.0",
+  "description": "pnpm enforcement - blocks npm commands in pnpm projects",
+  "author": "Sangho",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "test": "node --test 'scripts/__tests__/*.test.js'"
+  },
+  "files": [
+    ".claude-plugin/",
+    "hooks/",
+    "scripts/"
+  ]
+}

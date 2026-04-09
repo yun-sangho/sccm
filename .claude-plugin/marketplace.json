@@ -1,0 +1,47 @@
+{
+  "name": "sccm",
+  "owner": {
+    "name": "Sangho",
+    "email": "contact@yunsangho.com"
+  },
+  "metadata": {
+    "description": "Sangho Claude Code Market - 개인 Claude Code 플러그인 마켓플레이스",
+    "version": "0.1.0",
+    "pluginRoot": "./plugins"
+  },
+  "plugins": [
+    {
+      "name": "hooks-common",
+      "source": "./plugins/hooks-common",
+      "description": "Common security guard hooks - blocks dangerous Bash commands and sensitive file access",
+      "version": "0.1.0",
+      "author": {
+        "name": "Sangho"
+      },
+      "category": "security",
+      "tags": ["hooks", "security", "guard"]
+    },
+    {
+      "name": "hooks-pnpm",
+      "source": "./plugins/hooks-pnpm",
+      "description": "pnpm enforcement - blocks npm commands in pnpm projects",
+      "version": "0.1.0",
+      "author": {
+        "name": "Sangho"
+      },
+      "category": "workflow",
+      "tags": ["hooks", "pnpm", "npm", "monorepo"]
+    },
+    {
+      "name": "hooks-worktree",
+      "source": "./plugins/hooks-worktree",
+      "description": "Git worktree automation - monorepo-safe .env mirroring + auto-detect dependency install (pnpm/npm/yarn/bun/uv/poetry/bundler/cargo/go/composer)",
+      "version": "0.1.0",
+      "author": {
+        "name": "Sangho"
+      },
+      "category": "workflow",
+      "tags": ["hooks", "worktree", "git", "env"]
+    }
+  ]
+}

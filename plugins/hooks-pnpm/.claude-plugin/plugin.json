@@ -1,0 +1,8 @@
+{
+  "name": "hooks-pnpm",
+  "version": "0.1.0",
+  "description": "pnpm enforcement - blocks npm commands in pnpm projects",
+  "author": {
+    "name": "Sangho"
+  }
+}

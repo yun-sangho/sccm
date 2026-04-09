@@ -1,0 +1,27 @@
+{
+  "description": "Git worktree automation - create and remove",
+  "hooks": {
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/worktree-create.js\"",
+            "timeout": 600
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/worktree-remove.js\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
