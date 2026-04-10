@@ -1,0 +1,20 @@
+{
+  "name": "sccm",
+  "version": "0.1.0",
+  "description": "Sangho Claude Code Market — repo-root scripts for the sccm plugin marketplace",
+  "author": "Sangho",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "node": ">=21"
+  },
+  "scripts": {
+    "test": "node --test 'plugins/*/scripts/__tests__/*.test.js' 'plugins/*/scripts/__tests__/*.test.mjs'",
+    "test:hooks-guard": "node --test 'plugins/hooks-guard/scripts/__tests__/*.test.js'",
+    "test:hooks-pnpm": "node --test 'plugins/hooks-pnpm/scripts/__tests__/*.test.js'",
+    "test:hooks-worktree": "node --test 'plugins/hooks-worktree/scripts/__tests__/*.test.js'",
+    "test:sccm-sandbox": "node --test 'plugins/sccm-sandbox/scripts/__tests__/*.test.mjs'",
+    "verify-versions": "node scripts/verify-versions.mjs",
+    "bump": "node scripts/bump.mjs"
+  }
+}
