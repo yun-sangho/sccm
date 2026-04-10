@@ -361,6 +361,79 @@ describe("guard-secrets", () => {
     });
   });
 
+  // ── Shell-chain bypass regression (issue #5) ──
+  //
+  // The `git commit` passthrough used to exempt the whole command.
+  // checkBashCommand now splits on top-level shell operators and
+  // re-applies the passthrough only to the `git commit` sub-command.
+
+  describe("checkBashCommand: shell-chain bypass regression", () => {
+    it("blocks git commit && cat .env", () => {
+      const r = checkBashCommand(
+        'git commit -m "msg" && cat .env',
+        "critical",
+      );
+      assert.ok(r.blocked);
+      assert.equal(r.pattern.id, "cat-env");
+    });
+    it("blocks git commit ; rm .env", () => {
+      const r = checkBashCommand(
+        'git commit -m "msg" ; rm .env',
+        "high",
+      );
+      assert.ok(r.blocked);
+      assert.equal(r.pattern.id, "rm-env");
+    });
+    it("blocks git commit | cat ~/.ssh/id_rsa", () => {
+      const r = checkBashCommand(
+        'git commit -m "msg" | cat ~/.ssh/id_rsa',
+        "critical",
+      );
+      assert.ok(r.blocked);
+      assert.equal(r.pattern.id, "cat-ssh-key");
+    });
+    it("blocks cat .env && git commit (dangerous first)", () => {
+      const r = checkBashCommand(
+        'cat .env && git commit -m "msg"',
+        "critical",
+      );
+      assert.ok(r.blocked);
+      assert.equal(r.pattern.id, "cat-env");
+    });
+    it("blocks git commit && source .env", () => {
+      const r = checkBashCommand(
+        'git commit -m "msg" && source .env',
+        "high",
+      );
+      assert.ok(r.blocked);
+      assert.equal(r.pattern.id, "source-env");
+    });
+    it("allows git commit chained with ls", () => {
+      assert.ok(
+        !checkBashCommand('git commit -m "msg" && ls -la', "high").blocked,
+      );
+    });
+    it("allows git commit with && inside quoted message", () => {
+      assert.ok(
+        !checkBashCommand(
+          'git commit -m "tests: foo && bar paths"',
+          "high",
+        ).blocked,
+      );
+    });
+    it("allows git commit with a heredoc body containing && and .env", () => {
+      const cmd =
+        "git commit -m \"$(cat <<'EOF'\nfix: run foo && bar for .env.prod\nEOF\n)\"";
+      assert.ok(!checkBashCommand(cmd, "critical").blocked);
+    });
+    it("blocks gh pr create --body $(cat .env) even with chained commit", () => {
+      // Chained innocuous git commit should not hide the exfiltration.
+      const cmd =
+        'git commit -m "msg" && gh pr create --title x --body "$(cat .env)"';
+      assert.ok(checkBashCommand(cmd, "critical").blocked);
+    });
+  });
+
   // ── Safe bash commands ──
 
   describe("checkBashCommand: safe commands", () => {

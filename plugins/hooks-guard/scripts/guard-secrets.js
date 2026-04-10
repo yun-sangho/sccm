@@ -10,7 +10,14 @@
  *   high     — + secrets files, env dumps, exfiltration attempts
  *   strict   — + database configs, any config that might contain secrets
  */
-const { LEVELS, log, readStdin, block, allow } = require("./utils");
+const {
+  LEVELS,
+  log,
+  readStdin,
+  block,
+  allow,
+  splitShellChain,
+} = require("./utils");
 
 const SAFETY_LEVEL = "high";
 
@@ -228,11 +235,14 @@ function checkFilePath(filePath, safetyLevel = SAFETY_LEVEL) {
   return { blocked: false, pattern: null };
 }
 
-function checkBashCommand(cmd, safetyLevel = SAFETY_LEVEL) {
+// Evaluate a single shell command segment against BASH_PATTERNS.
+// Splitting into segments is handled by `checkBashCommand` so the
+// `git commit` passthrough only exempts the commit sub-command itself.
+function checkBashSegment(cmd, safetyLevel = SAFETY_LEVEL) {
   if (!cmd) return { blocked: false, pattern: null };
-  // Commit messages are content, not commands — skip pattern checks so
-  // prose mentioning .env / id_rsa / etc. in a commit body does not trip
-  // the secret-exfiltration rules. Mirrors guard-bash.js.
+  // Commit messages are content, not commands — skip pattern checks for
+  // THIS segment so prose mentioning .env / id_rsa / etc. in a commit
+  // body does not trip the secret-exfiltration rules.
   if (/^\s*git\s+commit\b/.test(cmd))
     return { blocked: false, pattern: null };
   // Allow .env.example access in bash commands too
@@ -244,6 +254,17 @@ function checkBashCommand(cmd, safetyLevel = SAFETY_LEVEL) {
     if (LEVELS[p.level] <= threshold && p.regex.test(cmd)) {
       return { blocked: true, pattern: p };
     }
+  }
+  return { blocked: false, pattern: null };
+}
+
+function checkBashCommand(cmd, safetyLevel = SAFETY_LEVEL) {
+  if (!cmd) return { blocked: false, pattern: null };
+  const segments = splitShellChain(cmd);
+  if (segments.length === 0) return checkBashSegment(cmd, safetyLevel);
+  for (const segment of segments) {
+    const result = checkBashSegment(segment, safetyLevel);
+    if (result.blocked) return result;
   }
   return { blocked: false, pattern: null };
 }
@@ -301,6 +322,7 @@ if (require.main === module) {
     check,
     checkFilePath,
     checkBashCommand,
+    checkBashSegment,
     isAllowlisted,
   };
 }

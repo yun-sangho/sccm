@@ -15,7 +15,14 @@
  *   - env file commit prevention (git add .env)
  *   - git commit message passthrough
  */
-const { LEVELS, log, readStdin, block, allow } = require("./utils");
+const {
+  LEVELS,
+  log,
+  readStdin,
+  block,
+  allow,
+  splitShellChain,
+} = require("./utils");
 
 const SAFETY_LEVEL = "high";
 
@@ -61,6 +68,10 @@ const PATTERNS = [
   {
     level: "critical",
     id: "fork-bomb",
+    // Structural pattern: the `|` and `&` inside the fork bomb are part
+    // of the payload, not shell chain operators. Must be evaluated
+    // against the whole command, not per-segment.
+    scope: "whole",
     regex: /:\(\)\s*\{.*:\s*\|\s*:.*&/,
     reason: "fork bomb detected",
   },
@@ -103,6 +114,9 @@ const PATTERNS = [
   {
     level: "high",
     id: "curl-pipe-sh",
+    // The pipe between curl/wget and sh is structural — whole-command
+    // scope so the splitter doesn't hide it.
+    scope: "whole",
     regex: /\b(curl|wget)\b.+\|\s*(ba)?sh\b/,
     reason: "piping URL to shell (RCE risk)",
   },
@@ -230,23 +244,53 @@ function checkProjectRules(cmd) {
   return null;
 }
 
-function checkCommand(cmd, safetyLevel = SAFETY_LEVEL) {
+// Evaluate a single shell command segment against project rules and
+// per-segment patterns. The `git commit` passthrough applies here, per
+// segment, so that chaining a dangerous command after `git commit` no
+// longer bypasses the rule set.
+function checkSegment(cmd, safetyLevel = SAFETY_LEVEL) {
   // Project-specific rules first (always active)
   const projectResult = checkProjectRules(cmd);
   if (projectResult) return { blocked: true, pattern: projectResult };
 
-  // Git commit messages are safe — skip pattern checks
+  // Git commit messages are safe — skip pattern checks for THIS segment.
   if (/^\s*git\s+commit\b/.test(cmd))
     return { blocked: false, pattern: null };
 
-  // Safety level patterns
+  // Safety level patterns (segment scope — the default).
   const threshold = LEVELS[safetyLevel] || 2;
   for (const p of PATTERNS) {
+    if (p.scope === "whole") continue;
     if (LEVELS[p.level] <= threshold && p.regex.test(cmd)) {
       return { blocked: true, pattern: p };
     }
   }
 
+  return { blocked: false, pattern: null };
+}
+
+function checkCommand(cmd, safetyLevel = SAFETY_LEVEL) {
+  if (!cmd) return { blocked: false, pattern: null };
+
+  // Whole-command patterns first: structural rules like the fork bomb
+  // and `curl | sh` that straddle segment boundaries.
+  const threshold = LEVELS[safetyLevel] || 2;
+  for (const p of PATTERNS) {
+    if (p.scope !== "whole") continue;
+    if (LEVELS[p.level] <= threshold && p.regex.test(cmd)) {
+      return { blocked: true, pattern: p };
+    }
+  }
+
+  // Split the command on unquoted shell operators and evaluate each
+  // segment independently. This prevents the `git commit` passthrough
+  // from leaking to a chained `&& rm -rf /`.
+  const segments = splitShellChain(cmd);
+  if (segments.length === 0) return checkSegment(cmd, safetyLevel);
+  for (const segment of segments) {
+    const result = checkSegment(segment, safetyLevel);
+    if (result.blocked) return result;
+  }
   return { blocked: false, pattern: null };
 }
 
@@ -282,5 +326,11 @@ async function main() {
 if (require.main === module) {
   main();
 } else {
-  module.exports = { PATTERNS, SAFETY_LEVEL, checkCommand, checkProjectRules };
+  module.exports = {
+    PATTERNS,
+    SAFETY_LEVEL,
+    checkCommand,
+    checkSegment,
+    checkProjectRules,
+  };
 }

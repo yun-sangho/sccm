@@ -4,7 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
-const { LEVELS, LOG_DIR, log } = require("../utils");
+const { LEVELS, LOG_DIR, log, splitShellChain } = require("../utils");
 
 describe("utils", () => {
   // ── LEVELS ──
@@ -86,6 +86,137 @@ describe("utils", () => {
       } else {
         delete process.env.CLAUDE_PROJECT_DIR;
       }
+    });
+  });
+
+  // ── splitShellChain ──
+
+  describe("splitShellChain", () => {
+    it("returns empty array for empty string", () => {
+      assert.deepEqual(splitShellChain(""), []);
+    });
+    it("returns empty array for null", () => {
+      assert.deepEqual(splitShellChain(null), []);
+    });
+    it("returns single segment for a plain command", () => {
+      assert.deepEqual(splitShellChain("ls -la"), ["ls -la"]);
+    });
+    it("trims whitespace around segments", () => {
+      assert.deepEqual(splitShellChain("  ls -la  "), ["ls -la"]);
+    });
+
+    // Operator splitting
+    it("splits on &&", () => {
+      assert.deepEqual(
+        splitShellChain("foo && bar"),
+        ["foo", "bar"],
+      );
+    });
+    it("splits on ||", () => {
+      assert.deepEqual(
+        splitShellChain("foo || bar"),
+        ["foo", "bar"],
+      );
+    });
+    it("splits on ;", () => {
+      assert.deepEqual(
+        splitShellChain("foo ; bar"),
+        ["foo", "bar"],
+      );
+    });
+    it("splits on |", () => {
+      assert.deepEqual(
+        splitShellChain("foo | bar"),
+        ["foo", "bar"],
+      );
+    });
+    it("splits on background &", () => {
+      assert.deepEqual(
+        splitShellChain("foo & bar"),
+        ["foo", "bar"],
+      );
+    });
+    it("splits on mixed operators", () => {
+      assert.deepEqual(
+        splitShellChain("a && b || c ; d | e"),
+        ["a", "b", "c", "d", "e"],
+      );
+    });
+    it("collapses empty segments from ;;", () => {
+      assert.deepEqual(
+        splitShellChain("a ;; b"),
+        ["a", "b"],
+      );
+    });
+
+    // Quote protection
+    it("does not split inside single quotes", () => {
+      assert.deepEqual(
+        splitShellChain("echo 'foo && bar'"),
+        ["echo 'foo && bar'"],
+      );
+    });
+    it("does not split inside double quotes", () => {
+      assert.deepEqual(
+        splitShellChain('git commit -m "msg && payload"'),
+        ['git commit -m "msg && payload"'],
+      );
+    });
+    it("does not split on ; inside double quotes", () => {
+      assert.deepEqual(
+        splitShellChain('echo "a;b;c"'),
+        ['echo "a;b;c"'],
+      );
+    });
+    it("splits outside quotes but not inside", () => {
+      assert.deepEqual(
+        splitShellChain('echo "a && b" && ls'),
+        ['echo "a && b"', "ls"],
+      );
+    });
+
+    // Command substitution
+    it("does not split inside $()", () => {
+      assert.deepEqual(
+        splitShellChain('git commit -m "$(cat msg && echo more)"'),
+        ['git commit -m "$(cat msg && echo more)"'],
+      );
+    });
+    it("handles nested $()", () => {
+      assert.deepEqual(
+        splitShellChain("echo $(foo $(bar && baz) qux) && ls"),
+        ["echo $(foo $(bar && baz) qux)", "ls"],
+      );
+    });
+    it("does not split inside backticks", () => {
+      assert.deepEqual(
+        splitShellChain("echo `foo && bar` && ls"),
+        ["echo `foo && bar`", "ls"],
+      );
+    });
+
+    // Escaping
+    it("treats backslash-escaped operators as literal", () => {
+      assert.deepEqual(
+        splitShellChain("echo a \\&\\& b"),
+        ["echo a \\&\\& b"],
+      );
+    });
+
+    // The motivating case for issue #5
+    it("splits git commit && rm .env", () => {
+      assert.deepEqual(
+        splitShellChain("git commit -m msg && rm .env"),
+        ["git commit -m msg", "rm .env"],
+      );
+    });
+    it("splits git commit with heredoc body && cat secret", () => {
+      const cmd =
+        "git commit -m \"$(cat <<'EOF'\nfix: .env handling\nEOF\n)\" && cat .env";
+      assert.deepEqual(splitShellChain(cmd), [
+        "git commit -m \"$(cat <<'EOF'\nfix: .env handling\nEOF\n)\"",
+        "cat .env",
+      ]);
     });
   });
 
