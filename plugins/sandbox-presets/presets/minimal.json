@@ -1,0 +1,18 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.anthropic.com",
+        "github.com",
+        "api.github.com",
+        "*.githubusercontent.com",
+        "objects.githubusercontent.com",
+        "codeload.github.com",
+        "registry.npmjs.org",
+        "*.npmjs.org"
+      ]
+    }
+  }
+}

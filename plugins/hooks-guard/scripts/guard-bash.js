@@ -64,6 +64,40 @@ const PATTERNS = [
     regex: /:\(\)\s*\{.*:\s*\|\s*:.*&/,
     reason: "fork bomb detected",
   },
+  {
+    level: "critical",
+    id: "docker-privileged",
+    regex: /\bdocker\s+(?:run|create|exec)\b[^|;&]*--privileged\b/,
+    reason: "docker --privileged grants host root capabilities",
+  },
+  {
+    level: "critical",
+    id: "docker-mount-docker-sock",
+    regex:
+      /\bdocker\s+(?:run|create|exec)\b[^|;&]*(?:-v\s+|--volume[=\s]+|--mount\s+[^|;&]*(?:source|src)=["']?)\/var\/run\/docker\.sock\b/,
+    reason: "mounting docker.sock into a container = host escape",
+  },
+  {
+    level: "critical",
+    id: "docker-mount-root",
+    regex:
+      /\bdocker\s+(?:run|create)\b[^|;&]*(?:(?:-v|--volume)(?:=|\s+)["']?\/["']?:|--mount\s+[^|;&]*(?:source|src)=["']?\/["']?[,\s])/,
+    reason: "docker mounting host root filesystem (-v /:...)",
+  },
+  {
+    level: "critical",
+    id: "docker-mount-system",
+    regex:
+      /\bdocker\s+(?:run|create)\b[^|;&]*(?:-v|--volume)(?:=|\s+)["']?\/(?:etc|root|boot|dev|proc|sys|bin|sbin|lib|lib64|usr)(?:\/|["']?:)/,
+    reason: "docker mounting host system directory",
+  },
+  {
+    level: "critical",
+    id: "docker-host-namespace",
+    regex:
+      /\bdocker\s+(?:run|create)\b[^|;&]*--(?:pid|net|network|ipc|uts|userns)=host\b/,
+    reason: "docker sharing host namespace (--pid=host / --net=host / ...)",
+  },
 
   // ── HIGH — Significant risk, data loss, security ──
   {
@@ -102,6 +136,26 @@ const PATTERNS = [
     id: "drop-sql",
     regex: /\bdrop\s+(table|database|schema)\b/i,
     reason: "destructive SQL (DROP TABLE/DATABASE/SCHEMA)",
+  },
+  {
+    level: "high",
+    id: "docker-cap-add-dangerous",
+    regex:
+      /\bdocker\s+(?:run|create)\b[^|;&]*--cap-add[=\s](?:ALL|SYS_ADMIN|SYS_PTRACE|SYS_MODULE|NET_ADMIN|DAC_READ_SEARCH)\b/,
+    reason: "docker --cap-add of a dangerous Linux capability",
+  },
+  {
+    level: "high",
+    id: "docker-system-prune-all",
+    regex:
+      /\bdocker\s+system\s+prune\b[^|;&]*(?:--volumes\b|--all\b|\s-a\b|\s-af\b|\s-fa\b)/,
+    reason: "docker system prune --all/--volumes wipes containers/images/data",
+  },
+  {
+    level: "high",
+    id: "docker-volume-prune",
+    regex: /\bdocker\s+volume\s+prune\b/,
+    reason: "docker volume prune wipes unused volumes (data loss)",
   },
 
   // ── STRICT — Cautionary, context-dependent ──

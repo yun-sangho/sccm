@@ -1,4 +1,5 @@
 node_modules/
 .omc/
 .claude/hooks-logs/
+plugins/*/.claude/hooks-logs/
 *.log

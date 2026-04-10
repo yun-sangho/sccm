@@ -7,7 +7,7 @@
  *   node scripts/bump.mjs <plugin-name> <patch|minor|major|X.Y.Z>
  *
  * Examples:
- *   node scripts/bump.mjs hooks-common patch      # 0.1.0 -> 0.1.1
+ *   node scripts/bump.mjs hooks-guard patch       # 0.1.0 -> 0.1.1
  *   node scripts/bump.mjs hooks-pnpm minor        # 0.1.1 -> 0.2.0
  *   node scripts/bump.mjs hooks-worktree 1.0.0    # explicit version
  *

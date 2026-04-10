@@ -1,0 +1,51 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "excludedCommands": [
+      "docker *",
+      "docker-compose *",
+      "docker compose *",
+      "npm *",
+      "npx *",
+      "pnpm *",
+      "pnpx *",
+      "yarn *",
+      "bun *",
+      "bunx *",
+      "pip *",
+      "pip3 *",
+      "uv *",
+      "poetry *",
+      "pipenv *",
+      "cargo *",
+      "go *",
+      "git *",
+      "gh *"
+    ],
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.anthropic.com",
+        "github.com",
+        "api.github.com",
+        "*.githubusercontent.com",
+        "objects.githubusercontent.com",
+        "codeload.github.com",
+        "registry.npmjs.org",
+        "*.npmjs.org",
+        "registry.yarnpkg.com",
+        "*.yarnpkg.com",
+        "nodejs.org",
+        "*.nodejs.org",
+        "pypi.org",
+        "*.pypi.org",
+        "files.pythonhosted.org",
+        "pythonhosted.org",
+        "registry-1.docker.io",
+        "auth.docker.io",
+        "production.cloudflare.docker.com",
+        "*.docker.io"
+      ]
+    }
+  }
+}

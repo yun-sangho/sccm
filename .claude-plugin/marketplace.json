@@ -11,15 +11,19 @@
   },
   "plugins": [
     {
-      "name": "hooks-common",
-      "source": "./plugins/hooks-common",
-      "description": "Common security guard hooks - blocks dangerous Bash commands and sensitive file access",
-      "version": "0.1.0",
+      "name": "hooks-guard",
+      "source": "./plugins/hooks-guard",
+      "description": "Security guard hooks - blocks dangerous Bash commands and sensitive file access",
+      "version": "0.2.0",
       "author": {
         "name": "Sangho"
       },
       "category": "security",
-      "tags": ["hooks", "security", "guard"]
+      "tags": [
+        "hooks",
+        "security",
+        "guard"
+      ]
     },
     {
       "name": "hooks-pnpm",
@@ -30,7 +34,12 @@
         "name": "Sangho"
       },
       "category": "workflow",
-      "tags": ["hooks", "pnpm", "npm", "monorepo"]
+      "tags": [
+        "hooks",
+        "pnpm",
+        "npm",
+        "monorepo"
+      ]
     },
     {
       "name": "hooks-worktree",
@@ -41,7 +50,27 @@
         "name": "Sangho"
       },
       "category": "workflow",
-      "tags": ["hooks", "worktree", "git", "env"]
+      "tags": [
+        "hooks",
+        "worktree",
+        "git",
+        "env"
+      ]
+    },
+    {
+      "name": "sandbox-presets",
+      "source": "./plugins/sandbox-presets",
+      "description": "Vetted sandbox.* presets + /sandbox-presets:apply slash command",
+      "version": "0.1.0",
+      "author": {
+        "name": "Sangho"
+      },
+      "category": "security",
+      "tags": [
+        "sandbox",
+        "settings",
+        "security"
+      ]
     }
   ]
 }

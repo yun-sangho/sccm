@@ -1,7 +1,7 @@
 {
-  "name": "hooks-common",
-  "version": "0.1.0",
-  "description": "Common security guard hooks - blocks dangerous Bash commands and sensitive file access",
+  "name": "hooks-guard",
+  "version": "0.2.0",
+  "description": "Security guard hooks - blocks dangerous Bash commands and sensitive file access",
   "author": "Sangho",
   "license": "UNLICENSED",
   "private": true,

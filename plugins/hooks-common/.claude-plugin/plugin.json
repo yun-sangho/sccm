@@ -1,8 +1,0 @@
-{
-  "name": "hooks-common",
-  "version": "0.1.0",
-  "description": "Common security guard hooks - blocks dangerous Bash commands and sensitive file access",
-  "author": {
-    "name": "Sangho"
-  }
-}

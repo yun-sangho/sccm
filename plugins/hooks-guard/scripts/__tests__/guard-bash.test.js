@@ -242,6 +242,161 @@ describe("guard-bash", () => {
     }
   });
 
+  // ── Docker host-escape patterns (critical) ──
+
+  describe("critical: docker --privileged", () => {
+    it("blocks docker run --privileged", () => {
+      assert.ok(
+        checkCommand("docker run --privileged -it ubuntu", "critical").blocked
+      );
+    });
+    it("blocks docker create --privileged", () => {
+      assert.ok(checkCommand("docker create --privileged alpine", "critical").blocked);
+    });
+    it("blocks docker exec --privileged", () => {
+      assert.ok(
+        checkCommand("docker exec --privileged mycontainer sh", "critical").blocked
+      );
+    });
+    it("allows docker run without --privileged", () => {
+      assert.ok(!checkCommand("docker run -it alpine sh", "critical").blocked);
+    });
+  });
+
+  describe("critical: docker mounting docker.sock", () => {
+    it("blocks -v /var/run/docker.sock", () => {
+      assert.ok(
+        checkCommand(
+          "docker run -v /var/run/docker.sock:/var/run/docker.sock alpine",
+          "critical"
+        ).blocked
+      );
+    });
+    it("blocks --volume /var/run/docker.sock", () => {
+      assert.ok(
+        checkCommand(
+          "docker run --volume /var/run/docker.sock:/sock alpine",
+          "critical"
+        ).blocked
+      );
+    });
+    it("blocks --mount source=/var/run/docker.sock", () => {
+      assert.ok(
+        checkCommand(
+          "docker run --mount type=bind,source=/var/run/docker.sock,target=/sock alpine",
+          "critical"
+        ).blocked
+      );
+    });
+  });
+
+  describe("critical: docker mounting host root", () => {
+    it("blocks -v /:/host", () => {
+      assert.ok(checkCommand("docker run -v /:/host -it ubuntu", "critical").blocked);
+    });
+    it("blocks --volume /:/host", () => {
+      assert.ok(checkCommand("docker run --volume /:/host alpine", "critical").blocked);
+    });
+    it("blocks --volume=/:/host", () => {
+      assert.ok(checkCommand("docker run --volume=/:/host alpine", "critical").blocked);
+    });
+    it("blocks --mount source=/", () => {
+      assert.ok(
+        checkCommand(
+          "docker run --mount type=bind,source=/,target=/host alpine",
+          "critical"
+        ).blocked
+      );
+    });
+    it("allows -v /tmp:/data", () => {
+      assert.ok(!checkCommand("docker run -v /tmp:/data alpine", "critical").blocked);
+    });
+    it("allows -v ./data:/data", () => {
+      assert.ok(!checkCommand("docker run -v ./data:/data alpine", "critical").blocked);
+    });
+  });
+
+  describe("critical: docker mounting system dirs", () => {
+    for (const dir of ["etc", "root", "boot", "dev", "proc", "sys", "bin", "sbin", "usr"]) {
+      it(`blocks -v /${dir}:`, () => {
+        assert.ok(
+          checkCommand(`docker run -v /${dir}:/host alpine`, "critical").blocked
+        );
+      });
+    }
+    it("allows -v /tmp:/data", () => {
+      assert.ok(!checkCommand("docker run -v /tmp:/data alpine", "critical").blocked);
+    });
+    it("allows -v /home/user/project:/app", () => {
+      assert.ok(
+        !checkCommand("docker run -v /home/user/project:/app alpine", "critical").blocked
+      );
+    });
+  });
+
+  describe("critical: docker host namespace", () => {
+    for (const ns of ["pid", "net", "network", "ipc", "uts", "userns"]) {
+      it(`blocks --${ns}=host`, () => {
+        assert.ok(
+          checkCommand(`docker run --${ns}=host alpine`, "critical").blocked
+        );
+      });
+    }
+    it("allows --net=bridge", () => {
+      assert.ok(!checkCommand("docker run --net=bridge alpine", "critical").blocked);
+    });
+  });
+
+  // ── Docker risky patterns (high) ──
+
+  describe("high: docker --cap-add dangerous", () => {
+    for (const cap of ["ALL", "SYS_ADMIN", "SYS_PTRACE", "SYS_MODULE", "NET_ADMIN"]) {
+      it(`blocks --cap-add=${cap}`, () => {
+        assert.ok(
+          checkCommand(`docker run --cap-add=${cap} alpine`, "high").blocked
+        );
+      });
+      it(`blocks --cap-add ${cap}`, () => {
+        assert.ok(
+          checkCommand(`docker run --cap-add ${cap} alpine`, "high").blocked
+        );
+      });
+    }
+    it("allows --cap-add=NET_BIND_SERVICE", () => {
+      assert.ok(
+        !checkCommand("docker run --cap-add=NET_BIND_SERVICE alpine", "high").blocked
+      );
+    });
+  });
+
+  describe("high: docker system prune --all/--volumes", () => {
+    it("blocks docker system prune --all", () => {
+      assert.ok(checkCommand("docker system prune --all", "high").blocked);
+    });
+    it("blocks docker system prune -a", () => {
+      assert.ok(checkCommand("docker system prune -a", "high").blocked);
+    });
+    it("blocks docker system prune -af", () => {
+      assert.ok(checkCommand("docker system prune -af", "high").blocked);
+    });
+    it("blocks docker system prune --volumes", () => {
+      assert.ok(checkCommand("docker system prune --volumes", "high").blocked);
+    });
+    it("plain docker system prune is only blocked at strict", () => {
+      assert.ok(!checkCommand("docker system prune", "high").blocked);
+      assert.ok(checkCommand("docker system prune", "strict").blocked);
+    });
+  });
+
+  describe("high: docker volume prune", () => {
+    it("blocks docker volume prune", () => {
+      assert.ok(checkCommand("docker volume prune", "high").blocked);
+    });
+    it("blocks docker volume prune -f", () => {
+      assert.ok(checkCommand("docker volume prune -f", "high").blocked);
+    });
+  });
+
   // ── Pattern ID uniqueness ──
 
   describe("pattern integrity", () => {

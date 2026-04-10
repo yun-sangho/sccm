@@ -1,6 +1,6 @@
-# hooks-common — security-guard hooks
+# hooks-guard — security-guard hooks
 
-Common security-guard hooks for Claude Code: blocks dangerous Bash commands and sensitive file access.
+Security-guard hooks for Claude Code: blocks dangerous Bash commands and sensitive file access.
 
 ## Overview
 
@@ -15,7 +15,7 @@ Intercepts tools the Claude Code agent runs (Bash, Read, Edit, Write, …) and b
 
 ```bash
 # Install via the SCCM marketplace
-claude plugin install hooks-common@sccm
+claude plugin install hooks-guard@sccm
 ```
 
 ## Hook details
@@ -28,9 +28,9 @@ Blocks dangerous shell commands across three safety levels.
 
 | Level | Blocked |
 |-------|---------|
-| `critical` | `rm -rf ~/`, fork bomb, `dd of=/dev/sda`, and other unrecoverable commands |
-| `high` | + `curl \| sh` (RCE), `git push --force main`, `git reset --hard`, `chmod 777`, `DROP TABLE` |
-| `strict` | + any force push, `git checkout .`, `sudo rm`, `docker prune` |
+| `critical` | `rm -rf ~/`, fork bomb, `dd of=/dev/sda`, Docker host escapes (`--privileged`, host-root mount, docker.sock mount, `--pid=host` …), and other unrecoverable commands |
+| `high` | + `curl \| sh` (RCE), `git push --force main`, `git reset --hard`, `chmod 777`, `DROP TABLE`, `--cap-add=SYS_ADMIN`, `docker system prune --all/--volumes`, `docker volume prune` |
+| `strict` | + any force push, `git checkout .`, `sudo rm`, `docker system/image prune` |
 
 **Project rules** (always active, independent of safety level)
 
@@ -49,16 +49,24 @@ Blocks dangerous shell commands across three safety levels.
 | `rm-cwd` | critical | `rm .` / `rm *` deleting the current directory |
 | `dd-disk` | critical | `dd` writing to a disk device |
 | `fork-bomb` | critical | Fork bomb `:(){ :\|:& }` |
+| `docker-privileged` | critical | `docker run/create/exec --privileged` |
+| `docker-mount-docker-sock` | critical | Mounting `/var/run/docker.sock` into a container (host escape) |
+| `docker-mount-root` | critical | `docker run -v /:/...` mounting host root |
+| `docker-mount-system` | critical | `docker run -v /etc \| /root \| /boot \| /dev \| /proc \| /sys \| /bin \| /sbin \| /lib \| /usr` |
+| `docker-host-namespace` | critical | `--pid=host` / `--net=host` / `--ipc=host` / `--uts=host` / `--userns=host` |
 | `curl-pipe-sh` | high | `curl \| sh` (remote code execution) |
 | `git-force-main` | high | `git push --force main/master` |
 | `git-reset-hard` | high | `git reset --hard` |
 | `git-clean-f` | high | `git clean -f` |
 | `chmod-777` | high | `chmod 777` |
 | `drop-sql` | high | `DROP TABLE/DATABASE/SCHEMA` |
+| `docker-cap-add-dangerous` | high | `--cap-add=ALL/SYS_ADMIN/SYS_PTRACE/SYS_MODULE/NET_ADMIN/DAC_READ_SEARCH` |
+| `docker-system-prune-all` | high | `docker system prune --all/--volumes/-a/-af` |
+| `docker-volume-prune` | high | `docker volume prune` |
 | `git-force-any` | strict | Any force push (except `--force-with-lease`) |
 | `git-checkout-dot` | strict | `git checkout .` |
 | `sudo-rm` | strict | `sudo rm` |
-| `docker-prune` | strict | `docker system/image prune` |
+| `docker-prune` | strict | `docker system/image prune` (light variant) |
 
 > **Network access:** plain `curl`/`wget` calls (including to localhost and external URLs) are **not** blocked. Only `curl ... | sh` / `wget ... | sh` pipes are blocked because of the RCE risk. See "Network policy" below.
 
@@ -139,14 +147,14 @@ const SAFETY_LEVEL = "high";  // "critical" | "high" | "strict"
 ## Tests
 
 ```bash
-cd plugins/hooks-common
+cd plugins/hooks-guard
 node --test
 ```
 
 ## Structure
 
 ```
-plugins/hooks-common/
+plugins/hooks-guard/
 ├── .claude-plugin/
 │   └── plugin.json          # Plugin metadata
 ├── hooks/

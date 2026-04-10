@@ -32,7 +32,7 @@ describe("utils", () => {
     let origLogDir;
 
     beforeEach(() => {
-      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hooks-common-test-"));
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hooks-guard-test-"));
     });
 
     afterEach(() => {
