@@ -211,6 +211,22 @@ If you want stricter sandboxing for some of these tools, edit your local `.claud
 - [anthropics/claude-code#37970](https://github.com/anthropics/claude-code/issues/37970) — `sandbox.network.allowedDomains` may be ignored on Cowork / Remote.
 - [anthropics/claude-code#33231](https://github.com/anthropics/claude-code/issues/33231) — `httpProxyPort` connection refused when using a custom proxy.
 
+## Bugs and feedback
+
+Every plugin ships a `/<plugin>:report-issue` slash command that
+auto-collects your version, OS, and recent conversation context, then files
+a structured issue at
+[github.com/yun-sangho/sccm/issues](https://github.com/yun-sangho/sccm/issues/new/choose):
+
+```
+/hooks-guard:report-issue bug
+/sccm-sandbox:report-issue feature
+```
+
+If `gh` (GitHub CLI) is not installed, the command opens a pre-filled
+browser form instead. You can also file directly on GitHub — the repo has
+structured issue templates for both bugs and feature requests.
+
 ## Structure
 
 ```

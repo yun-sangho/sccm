@@ -55,6 +55,20 @@ cd plugins/hooks-worktree
 node --test scripts/__tests__/*.test.js
 ```
 
+## Reporting bugs / suggesting features
+
+From inside Claude Code:
+
+```
+/hooks-worktree:report-issue bug       # file a bug report
+/hooks-worktree:report-issue feature   # suggest an improvement
+```
+
+The command auto-collects the plugin version, OS, and recent conversation
+context, then files a structured issue at
+[github.com/yun-sangho/sccm/issues](https://github.com/yun-sangho/sccm/issues/new/choose).
+If `gh` is not installed it opens a pre-filled browser form instead.
+
 ## Structure
 
 ```

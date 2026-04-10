@@ -93,6 +93,20 @@ The merge is safe by construction:
   `defaultMode`) are never touched.
 - Writes are atomic (temp-file + rename).
 
+## Reporting bugs / suggesting features
+
+From inside Claude Code:
+
+```
+/sccm-sandbox:report-issue bug       # file a bug report
+/sccm-sandbox:report-issue feature   # suggest an improvement
+```
+
+The command auto-collects the plugin version, OS, and recent conversation
+context, then files a structured issue at
+[github.com/yun-sangho/sccm/issues](https://github.com/yun-sangho/sccm/issues/new/choose).
+If `gh` is not installed it opens a pre-filled browser form instead.
+
 ## Known issues
 
 - [anthropics/claude-code#37970](https://github.com/anthropics/claude-code/issues/37970) — `sandbox.network.allowedDomains` may be ignored on Cowork / Remote.

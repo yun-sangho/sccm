@@ -151,6 +151,20 @@ cd plugins/hooks-guard
 node --test
 ```
 
+## Reporting bugs / suggesting features
+
+From inside Claude Code:
+
+```
+/hooks-guard:report-issue bug       # file a bug report
+/hooks-guard:report-issue feature   # suggest an improvement
+```
+
+The command auto-collects the plugin version, OS, and recent conversation
+context, then files a structured issue at
+[github.com/yun-sangho/sccm/issues](https://github.com/yun-sangho/sccm/issues/new/choose).
+If `gh` is not installed it opens a pre-filled browser form instead.
+
 ## Structure
 
 ```
