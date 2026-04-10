@@ -5,6 +5,9 @@
   "author": "Sangho",
   "license": "UNLICENSED",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "test": "node --test 'scripts/__tests__/*.test.mjs'"
   },

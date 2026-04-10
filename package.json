@@ -6,7 +6,7 @@
   "license": "UNLICENSED",
   "private": true,
   "engines": {
-    "node": ">=21"
+    "node": ">=22"
   },
   "scripts": {
     "test": "node --test 'plugins/*/scripts/__tests__/*.test.js' 'plugins/*/scripts/__tests__/*.test.mjs'",
