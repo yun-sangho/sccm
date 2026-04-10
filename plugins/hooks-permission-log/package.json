@@ -1,0 +1,20 @@
+{
+  "name": "hooks-permission-log",
+  "version": "0.2.0",
+  "description": "Log permission-flow events (Pre/PermissionRequest/Post/Failure) and review them to refine sandbox and guard settings",
+  "author": "Sangho",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test 'scripts/__tests__/*.test.js'"
+  },
+  "files": [
+    ".claude-plugin/",
+    "hooks/",
+    "scripts/",
+    "commands/"
+  ]
+}

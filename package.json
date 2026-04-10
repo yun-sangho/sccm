@@ -14,6 +14,7 @@
     "test:hooks-pnpm": "node --test 'plugins/hooks-pnpm/scripts/__tests__/*.test.js'",
     "test:hooks-worktree": "node --test 'plugins/hooks-worktree/scripts/__tests__/*.test.js'",
     "test:sccm-sandbox": "node --test 'plugins/sccm-sandbox/scripts/__tests__/*.test.mjs'",
+    "test:hooks-permission-log": "node --test 'plugins/hooks-permission-log/scripts/__tests__/*.test.js'",
     "verify-versions": "node scripts/verify-versions.mjs",
     "bump": "node scripts/bump.mjs"
   }

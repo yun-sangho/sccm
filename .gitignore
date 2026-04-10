@@ -1,5 +1,8 @@
 node_modules/
 .omc/
 .claude/hooks-logs/
+.claude/permission-logs/
+.claude/settings.local.json
 plugins/*/.claude/hooks-logs/
+plugins/*/.claude/permission-logs/
 *.log
