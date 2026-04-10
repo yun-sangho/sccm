@@ -1,8 +1,0 @@
-{
-  "name": "sandbox-presets",
-  "version": "0.1.0",
-  "description": "Vetted sandbox.* presets + /sandbox-presets:apply slash command",
-  "author": {
-    "name": "Sangho"
-  }
-}

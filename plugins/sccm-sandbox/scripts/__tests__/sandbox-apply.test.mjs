@@ -91,10 +91,10 @@ describe("parseArgs", () => {
 });
 
 describe("listProfiles", () => {
-  test("returns at least minimal and full", () => {
+  test("returns at least min and base", () => {
     const profiles = listProfiles();
-    assert.ok(profiles.includes("minimal"), "minimal missing");
-    assert.ok(profiles.includes("full"), "full missing");
+    assert.ok(profiles.includes("min"), "min missing");
+    assert.ok(profiles.includes("base"), "base missing");
   });
 
   test("returns sorted", () => {
@@ -105,8 +105,8 @@ describe("listProfiles", () => {
 });
 
 describe("loadPreset", () => {
-  test("loads minimal", () => {
-    const p = loadPreset("minimal");
+  test("loads min", () => {
+    const p = loadPreset("min");
     assert.equal(p.sandbox.enabled, true);
   });
 
@@ -161,8 +161,8 @@ describe("loadTarget", () => {
 });
 
 describe("mergeSandbox — empty target", () => {
-  test("merging minimal into {} yields a full sandbox block", () => {
-    const { merged } = mergeSandbox({}, loadPresetFile("minimal"));
+  test("merging min into {} yields a sandbox block with allowed domains", () => {
+    const { merged } = mergeSandbox({}, loadPresetFile("min"));
     assert.equal(merged.sandbox.enabled, true);
     assert.ok(Array.isArray(merged.sandbox.network.allowedDomains));
     assert.ok(merged.sandbox.network.allowedDomains.length > 0);
@@ -171,8 +171,8 @@ describe("mergeSandbox — empty target", () => {
     );
   });
 
-  test("merging full into {} carries excludedCommands", () => {
-    const { merged } = mergeSandbox({}, loadPresetFile("full"));
+  test("merging base into {} carries excludedCommands", () => {
+    const { merged } = mergeSandbox({}, loadPresetFile("base"));
     assert.ok(Array.isArray(merged.sandbox.excludedCommands));
     assert.ok(merged.sandbox.excludedCommands.includes("docker *"));
     assert.ok(merged.sandbox.excludedCommands.includes("npm *"));
@@ -188,7 +188,7 @@ describe("mergeSandbox — array dedupe + ordering", () => {
         network: { allowedDomains: ["foo.com", "github.com"] },
       },
     };
-    const { merged } = mergeSandbox(existing, loadPresetFile("minimal"));
+    const { merged } = mergeSandbox(existing, loadPresetFile("min"));
     const domains = merged.sandbox.network.allowedDomains;
     assert.equal(domains[0], "foo.com");
     assert.equal(domains[1], "github.com");
@@ -204,7 +204,7 @@ describe("mergeSandbox — array dedupe + ordering", () => {
     const existing = {
       sandbox: { excludedCommands: ["docker *", "vim *"] },
     };
-    const { merged } = mergeSandbox(existing, loadPresetFile("full"));
+    const { merged } = mergeSandbox(existing, loadPresetFile("base"));
     assert.equal(merged.sandbox.excludedCommands[0], "docker *");
     assert.equal(merged.sandbox.excludedCommands[1], "vim *");
     assert.ok(merged.sandbox.excludedCommands.includes("npm *"));
@@ -223,7 +223,7 @@ describe("mergeSandbox — preserves user settings", () => {
       mcpServers: { foo: { command: "bar" } },
       sandbox: { network: { allowedDomains: [] } },
     };
-    const { merged } = mergeSandbox(existing, loadPresetFile("minimal"));
+    const { merged } = mergeSandbox(existing, loadPresetFile("min"));
     assert.deepEqual(merged.permissions, { allow: ["Bash(ls)"] });
     assert.deepEqual(merged.enabledPlugins, { "hooks-guard@sccm": true });
     assert.deepEqual(merged.mcpServers, { foo: { command: "bar" } });
@@ -231,7 +231,7 @@ describe("mergeSandbox — preserves user settings", () => {
 
   test("explicitly disabled sandbox is preserved with a warning", () => {
     const existing = { sandbox: { enabled: false } };
-    const { merged, diff } = mergeSandbox(existing, loadPresetFile("minimal"));
+    const { merged, diff } = mergeSandbox(existing, loadPresetFile("min"));
     assert.equal(merged.sandbox.enabled, false);
     assert.ok(
       diff.warnings.some((w) => w.includes("explicitly false")),
@@ -266,13 +266,13 @@ describe("mergeSandbox — preserves user settings", () => {
 
 describe("mergeSandbox — diff reporting", () => {
   test("counts added domains", () => {
-    const { diff } = mergeSandbox({}, loadPresetFile("minimal"));
+    const { diff } = mergeSandbox({}, loadPresetFile("min"));
     assert.ok(diff.added.allowedDomains.length > 0);
   });
 
   test("reports zero adds when re-applying the same preset", () => {
-    const first = mergeSandbox({}, loadPresetFile("full"));
-    const second = mergeSandbox(first.merged, loadPresetFile("full"));
+    const first = mergeSandbox({}, loadPresetFile("base"));
+    const second = mergeSandbox(first.merged, loadPresetFile("base"));
     assert.equal(second.diff.added.allowedDomains.length, 0);
     assert.equal(second.diff.added.excludedCommands.length, 0);
     assert.equal(second.diff.added.allowWrite.length, 0);

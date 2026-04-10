@@ -44,7 +44,9 @@
         "registry-1.docker.io",
         "auth.docker.io",
         "production.cloudflare.docker.com",
-        "*.docker.io"
+        "*.docker.io",
+        "*.supabase.co",
+        "*.vercel.app"
       ]
     }
   }

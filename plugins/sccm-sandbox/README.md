@@ -1,7 +1,7 @@
-# sandbox-presets
+# sccm-sandbox
 
 Vetted `sandbox.*` configuration snippets for Claude Code, plus a
-`/sandbox-presets:apply` slash command that merges one into your project's
+`/sccm-sandbox:apply` slash command that merges one into your project's
 `.claude/settings.local.json` without leaving the session.
 
 ## Why this is a plugin and not just settings
@@ -16,22 +16,23 @@ a slash command.
 
 ```
 /plugin marketplace add yun-sangho/sccm
-/plugin install sandbox-presets@sccm
+/plugin install sccm-sandbox@sccm
 ```
 
 ## Usage
 
 ```
-/sandbox-presets:apply full
-/sandbox-presets:apply minimal --dry-run
-/sandbox-presets:apply full --shared
+/sccm-sandbox:apply              # defaults to 'base'
+/sccm-sandbox:apply min          # minimal profile
+/sccm-sandbox:apply base --dry-run
+/sccm-sandbox:apply base --shared
 ```
 
 Arguments are forwarded to `scripts/sandbox-apply.mjs`:
 
 | Argument | What it does |
 |----------|-------------|
-| `<profile>` | `minimal` or `full` (see below). Required. |
+| `[profile]` | `min` or `base`. Optional — defaults to `base`. |
 | `--dry-run` | Print the diff but do not write. |
 | `--shared` | Merge into `.claude/settings.json` (team-committed) instead of `.claude/settings.local.json`. |
 | `--target PATH` | Merge into a custom settings file. |
@@ -43,12 +44,12 @@ Arguments are forwarded to `scripts/sandbox-apply.mjs`:
 
 | Profile | What it allows | Heads-up |
 |---------|---------------|----------|
-| `minimal` | Anthropic API + GitHub HTTPS + npm registry. Just enough to bootstrap a session. | Stays fully sandboxed |
-| `full` | Broader network (Yarn / PyPI / Docker Hub …) **and** runs `docker / npm / pnpm / yarn / bun / pip / uv / poetry / cargo / go / git / gh` **outside** the sandbox via `excludedCommands` | Excluded commands have **no** OS-level sandbox protection — see trade-off below |
+| `min` | Anthropic API + GitHub HTTPS + npm registry + Supabase + Vercel. Minimal bootstrap. | Stays fully sandboxed |
+| `base` (default) | Broader network (Yarn / PyPI / Docker Hub / Supabase / Vercel …) **and** runs `docker / npm / pnpm / yarn / bun / pip / uv / poetry / cargo / go / git / gh` **outside** the sandbox via `excludedCommands` | Excluded commands have **no** OS-level sandbox protection — see trade-off below |
 
 ### Trade-off: `excludedCommands` runs unsandboxed
 
-The `full` profile lists package managers and git/gh under
+The `base` profile lists package managers and git/gh under
 `sandbox.excludedCommands`. Per [official sandboxing guidance](https://code.claude.com/docs/en/sandboxing),
 this is the recommended way to make these tools work — but commands in this
 list run **entirely outside** the sandbox: free filesystem, free network,
@@ -56,7 +57,8 @@ all child processes (including `npm` postinstall scripts) inherit that. If
 `hooks-guard` is also installed, its PreToolUse layer still applies, so the
 dangerous patterns it knows about (`git push --force main`,
 `docker run --privileged`, …) are still blocked, but OS-level protection
-is gone for those commands. Apply only if you understand the trade-off.
+is gone for those commands. If you want stricter sandboxing, use `min`
+instead.
 
 To narrow the scope after applying, edit `.claude/settings.local.json` and
 remove individual entries from `sandbox.excludedCommands`.

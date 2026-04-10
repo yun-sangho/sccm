@@ -1,0 +1,8 @@
+{
+  "name": "sccm-sandbox",
+  "version": "0.1.0",
+  "description": "Vetted sandbox.* presets + /sccm-sandbox:apply slash command",
+  "author": {
+    "name": "Sangho"
+  }
+}

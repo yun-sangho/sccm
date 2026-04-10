@@ -11,7 +11,9 @@
         "objects.githubusercontent.com",
         "codeload.github.com",
         "registry.npmjs.org",
-        "*.npmjs.org"
+        "*.npmjs.org",
+        "*.supabase.co",
+        "*.vercel.app"
       ]
     }
   }

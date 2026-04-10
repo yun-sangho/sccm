@@ -5,12 +5,12 @@
  *
  * Usage:
  *   node sandbox-apply.mjs <profile> [options]
- *   /sandbox-presets:apply <profile> [options]   (when installed as a plugin)
+ *   /sccm-sandbox:apply <profile> [options]   (when installed as a plugin)
  *
  * Profiles:
- *   minimal   Anthropic + GitHub + npm registry. Just enough to bootstrap.
- *   full      Everything: broader network, npm/python cache writable, docker
- *             via excludedCommands.
+ *   min    Minimal bootstrap — Anthropic + GitHub + npm + Supabase + Vercel.
+ *   base   Default. Broader network + package managers / git via
+ *          excludedCommands. Use this unless you have a reason not to.
  *
  * Options:
  *   --target PATH   Settings file to merge into.
@@ -34,7 +34,7 @@
  *   bundled settings.json only honors `agent` keys — sandbox.* and
  *   permissions.* are deliberately excluded so a plugin cannot silently
  *   relax your security posture. This plugin therefore ships presets as
- *   plain JSON and exposes a /sandbox-presets:apply slash command that
+ *   plain JSON and exposes a /sccm-sandbox:apply slash command that
  *   invokes this script — explicit, user-driven merge.
  */
 import fs from "fs";
@@ -75,7 +75,7 @@ const SCALAR_KEYS_SANDBOX = [
 function help() {
   console.log(
     `Usage: node sandbox-apply.mjs <profile> [options]
-       /sandbox-presets:apply <profile> [options]   (when installed as a plugin)
+       /sccm-sandbox:apply <profile> [options]   (when installed as a plugin)
 
 Profiles:
 ${listProfiles()
@@ -90,9 +90,10 @@ Options:
   -h, --help      Show this help
 
 Examples:
-  node sandbox-apply.mjs minimal
-  node sandbox-apply.mjs full --dry-run
-  /sandbox-presets:apply full --shared
+  node sandbox-apply.mjs base
+  node sandbox-apply.mjs min --dry-run
+  /sccm-sandbox:apply              # defaults to 'base'
+  /sccm-sandbox:apply base --shared
 `
   );
 }

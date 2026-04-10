@@ -31,7 +31,7 @@ You can also install from a local clone during development:
 /plugin install hooks-guard@sccm
 /plugin install hooks-pnpm@sccm
 /plugin install hooks-worktree@sccm
-/plugin install sandbox-presets@sccm
+/plugin install sccm-sandbox@sccm
 ```
 
 ### 3. Verify installation
@@ -49,7 +49,7 @@ Once installed, hooks activate automatically — no extra configuration needed.
 | [hooks-guard](plugins/hooks-guard/) | `/plugin install hooks-guard@sccm` | Security guard — blocks dangerous Bash commands and sensitive file access |
 | [hooks-pnpm](plugins/hooks-pnpm/) | `/plugin install hooks-pnpm@sccm` | Blocks `npm` commands in pnpm projects |
 | [hooks-worktree](plugins/hooks-worktree/) | `/plugin install hooks-worktree@sccm` | Git worktree automation — mirrors `.env` files (monorepo-safe) and auto-installs dependencies |
-| [sandbox-presets](plugins/sandbox-presets/) | `/plugin install sandbox-presets@sccm` | Vetted `sandbox.*` presets + `/sandbox-presets:apply` slash command |
+| [sccm-sandbox](plugins/sccm-sandbox/) | `/plugin install sccm-sandbox@sccm` | Vetted `sandbox.*` presets + `/sccm-sandbox:apply` slash command |
 
 ## CLI command reference
 
@@ -100,7 +100,7 @@ Adding this to your project's `.claude/settings.json` auto-registers the marketp
     "hooks-guard@sccm": true,
     "hooks-pnpm@sccm": true,
     "hooks-worktree@sccm": true,
-    "sandbox-presets@sccm": true
+    "sccm-sandbox@sccm": true
   }
 }
 ```
@@ -152,23 +152,23 @@ On `WorktreeRemove`, tears the worktree and its `worktree-*` branch down cleanly
 
 ## Sandbox presets
 
-Pre-built `sandbox.*` settings snippets for common dev workflows. They live inside the [`sandbox-presets`](plugins/sandbox-presets/) plugin (not as bundled plugin settings — Claude Code's plugin system intentionally forbids plugins from shipping `sandbox.*` or `permissions.*` keys, only `agent` settings are honored, per the [plugin reference](https://code.claude.com/docs/en/plugins-reference)). Apply them via the slash command, or use one of the manual flows below.
+Pre-built `sandbox.*` settings snippets for common dev workflows. They live inside the [`sccm-sandbox`](plugins/sccm-sandbox/) plugin (not as bundled plugin settings — Claude Code's plugin system intentionally forbids plugins from shipping `sandbox.*` or `permissions.*` keys, only `agent` settings are honored, per the [plugin reference](https://code.claude.com/docs/en/plugins-reference)). Apply them via the slash command, or use one of the manual flows below.
 
 ### Available profiles
 
 | Profile | What it allows | Heads-up |
 |---------|---------------|----------|
-| `minimal` | Anthropic API + GitHub HTTPS + npm registry. Just enough to bootstrap a session. | Stays fully sandboxed |
-| `full` | Broader network (Yarn / PyPI / Docker Hub …) **and** runs `docker / npm / pnpm / yarn / bun / pip / uv / poetry / cargo / go / git / gh` **outside** the sandbox via `excludedCommands` | Excluded commands have **no** OS-level sandbox protection — see the warning below |
+| `min` | Anthropic API + GitHub HTTPS + npm registry + Supabase + Vercel. Minimal bootstrap. | Stays fully sandboxed |
+| `base` (default) | Broader network (Yarn / PyPI / Docker Hub / Supabase / Vercel …) **and** runs `docker / npm / pnpm / yarn / bun / pip / uv / poetry / cargo / go / git / gh` **outside** the sandbox via `excludedCommands` | Excluded commands have **no** OS-level sandbox protection — see the warning below |
 
 ### Apply: slash command (recommended)
 
-Once `sandbox-presets@sccm` is installed, run inside any Claude Code session:
+Once `sccm-sandbox@sccm` is installed, run inside any Claude Code session:
 
 ```
-/sandbox-presets:apply full
-/sandbox-presets:apply minimal --dry-run
-/sandbox-presets:apply full --shared
+/sccm-sandbox:apply              # defaults to 'base'
+/sccm-sandbox:apply min --dry-run
+/sccm-sandbox:apply base --shared
 ```
 
 The command shells out to the bundled merge script via `${CLAUDE_PLUGIN_ROOT}` — no clone, no curl, no shell-hopping.
@@ -179,7 +179,7 @@ If `.claude/settings.local.json` doesn't exist yet, just drop the file in:
 
 ```bash
 mkdir -p .claude
-curl -fsSL https://raw.githubusercontent.com/yun-sangho/sccm/main/plugins/sandbox-presets/presets/full.json \
+curl -fsSL https://raw.githubusercontent.com/yun-sangho/sccm/main/plugins/sccm-sandbox/presets/base.json \
   -o .claude/settings.local.json
 ```
 
@@ -189,20 +189,20 @@ If `.claude/settings.local.json` already exists (or has other keys you want to k
 
 ```bash
 # Default target: <cwd>/.claude/settings.local.json
-node plugins/sandbox-presets/scripts/sandbox-apply.mjs full
+node plugins/sccm-sandbox/scripts/sandbox-apply.mjs base
 
 # Preview without writing
-node plugins/sandbox-presets/scripts/sandbox-apply.mjs full --dry-run
+node plugins/sccm-sandbox/scripts/sandbox-apply.mjs base --dry-run
 
 # Apply to shared (team-committed) settings instead of local
-node plugins/sandbox-presets/scripts/sandbox-apply.mjs full --shared
+node plugins/sccm-sandbox/scripts/sandbox-apply.mjs base --shared
 ```
 
 > ⚠ Sandbox config changes only take effect on **new** sessions. Restart Claude Code after applying.
 
 ### Trade-off: `excludedCommands` runs unsandboxed
 
-The `full` profile lists package managers and git/gh under `sandbox.excludedCommands`. Per [official sandboxing guidance](https://code.claude.com/docs/en/sandboxing), this is the recommended way to make these tools work — but commands in this list run **entirely outside** the sandbox: free filesystem, free network, all child processes (including `npm` postinstall scripts) inherit that. The `hooks-guard` PreToolUse layer still applies, so the dangerous patterns it knows about (`git push --force main`, `docker run --privileged`, …) are still blocked, but OS-level protection is gone for those commands. Apply only if you understand the trade-off.
+The `base` profile lists package managers and git/gh under `sandbox.excludedCommands`. Per [official sandboxing guidance](https://code.claude.com/docs/en/sandboxing), this is the recommended way to make these tools work — but commands in this list run **entirely outside** the sandbox: free filesystem, free network, all child processes (including `npm` postinstall scripts) inherit that. The `hooks-guard` PreToolUse layer still applies, so the dangerous patterns it knows about (`git push --force main`, `docker run --privileged`, …) are still blocked, but OS-level protection is gone for those commands. If you want stricter sandboxing, use `min` instead.
 
 If you want stricter sandboxing for some of these tools, edit your local `.claude/settings.local.json` after applying and remove individual entries from `sandbox.excludedCommands`.
 
@@ -221,9 +221,9 @@ marketplace/
 │   ├── hooks-guard/             # Security guard (Bash + secret access)
 │   ├── hooks-pnpm/              # Enforce pnpm
 │   ├── hooks-worktree/          # Git worktree automation
-│   └── sandbox-presets/         # Sandbox.* presets + /sandbox-presets:apply command
-│       ├── commands/apply.md    # Slash command entrypoint
-│       ├── presets/             # minimal.json, full.json
+│   └── sccm-sandbox/            # Sandbox.* presets + /sccm-sandbox:apply command
+│       ├── commands/apply.md    # Slash command entrypoint (defaults to base)
+│       ├── presets/             # min.json, base.json
 │       └── scripts/             # sandbox-apply.mjs + tests
 ├── scripts/
 │   ├── bump.mjs                 # Version bump for a single plugin
@@ -281,7 +281,7 @@ plugins/{name}/
 cd plugins/hooks-guard && node --test scripts/__tests__/*.test.js
 cd plugins/hooks-pnpm && node --test scripts/__tests__/*.test.js
 cd plugins/hooks-worktree && node --test scripts/__tests__/*.test.js
-cd plugins/sandbox-presets && node --test scripts/__tests__/*.test.mjs
+cd plugins/sccm-sandbox && node --test scripts/__tests__/*.test.mjs
 ```
 
 ## Versioning & releasing
