@@ -227,6 +227,22 @@ If `gh` (GitHub CLI) is not installed, the command opens a pre-filled
 browser form instead. You can also file directly on GitHub — the repo has
 structured issue templates for both bugs and feature requests.
 
+## Cloud automations
+
+An hourly Claude Code scheduled task on Anthropic cloud auto-triages
+every new issue: classifies the plugin, decides bug vs. enhancement,
+flags duplicates, asks for missing info, and posts a single Discord
+summary with clickable links back to the issues.
+
+The canonical prompt lives at [`prompts/triage.md`](prompts/triage.md);
+the cloud trigger holds only a small bootstrap
+([`prompts/triage.bootstrap.md`](prompts/triage.bootstrap.md)) that
+fetches the canonical prompt via the GitHub MCP and follows it. To
+change triage behavior, edit `prompts/triage.md` on `main` and push —
+the next hourly run picks it up automatically. See
+[`prompts/README.md`](prompts/README.md) for required labels and
+deploy notes.
+
 ## Structure
 
 ```
@@ -241,6 +257,10 @@ marketplace/
 │       ├── commands/apply.md    # Slash command entrypoint (defaults to base)
 │       ├── presets/             # min.json, base.json
 │       └── scripts/             # sandbox-apply.mjs + tests
+├── prompts/                     # Prompts for cloud-side Claude Code automations
+│   ├── triage.md                # Canonical hourly issue-triage prompt
+│   ├── triage.bootstrap.md      # Tiny bootstrap pasted into the cloud trigger
+│   └── README.md                # Required labels + deploy notes
 ├── scripts/
 │   ├── bump.mjs                 # Version bump for a single plugin
 │   └── verify-versions.mjs      # CI check — version consistency across files
