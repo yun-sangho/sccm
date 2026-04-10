@@ -1,0 +1,67 @@
+name: Bug report
+description: Report a bug in an sccm plugin
+title: "[<plugin>] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug! Tip: from inside Claude Code you can run
+        `/<plugin>:report-issue bug` (e.g. `/hooks-guard:report-issue bug`)
+        and the slash command will fill most of this in for you, including
+        the plugin version and your environment.
+  - type: dropdown
+    id: plugin
+    attributes:
+      label: Which plugin?
+      options:
+        - hooks-guard
+        - hooks-pnpm
+        - hooks-worktree
+        - sccm-sandbox
+        - other / not sure
+    validations:
+      required: true
+  - type: input
+    id: plugin_version
+    attributes:
+      label: Plugin version
+      description: See `plugins/<name>/.claude-plugin/plugin.json` or run `/<plugin>:report-issue` which auto-fills this.
+      placeholder: e.g. 0.2.1
+    validations:
+      required: true
+  - type: input
+    id: claude_code_version
+    attributes:
+      label: Claude Code version
+      description: Run `claude --version` if available.
+      placeholder: e.g. 1.x
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: e.g. macOS 14.5 / Ubuntu 22.04
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: What did you observe? Paste relevant error output verbatim.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected to happen
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Install plugin X
+        2. Run command Y
+        3. Observe Z
+  - type: textarea
+    id: workarounds
+    attributes:
+      label: Workarounds tried (optional)

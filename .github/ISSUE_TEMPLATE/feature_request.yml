@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest an improvement or new feature for an sccm plugin
+title: "[<plugin>] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion! From inside Claude Code you can also run
+        `/<plugin>:report-issue feature` to file this with auto-collected
+        plugin/environment context.
+  - type: dropdown
+    id: plugin
+    attributes:
+      label: Which plugin?
+      options:
+        - hooks-guard
+        - hooks-pnpm
+        - hooks-worktree
+        - sccm-sandbox
+        - new plugin idea
+        - other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: What problem are you trying to solve?
+      description: The "why" — the workflow that's currently painful or missing.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How could the plugin behave to solve this?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered (optional)
