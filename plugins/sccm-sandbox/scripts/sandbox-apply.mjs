@@ -26,8 +26,14 @@
  *     user has not configured).
  *   - sandbox.enabled === false in the user's settings is preserved with a
  *     warning — we will not silently flip a deliberate opt-out.
- *   - Top-level keys outside `sandbox` (permissions, enabledPlugins, ...) are
- *     never touched.
+ *   - permissions.allow is concat+dedupe like the sandbox arrays. The script
+ *     touches it because sandbox.excludedCommands is useless without matching
+ *     allow patterns — without them, every `git status` or `docker info` would
+ *     still hit a permission prompt.
+ *   - Top-level keys outside `sandbox` and `permissions.allow`
+ *     (permissions.deny, permissions.ask, permissions.defaultMode,
+ *     enabledPlugins, mcpServers, hooks, statusLine, agent, ...) are never
+ *     touched.
  *
  * Why this script exists:
  *   Claude Code plugins can ship hooks/skills/agents/MCP servers but their
@@ -71,6 +77,10 @@ const SCALAR_KEYS_SANDBOX = [
   "enableWeakerNestedSandbox",
   "enableWeakerNetworkIsolation",
 ];
+// Permissions keys we are willing to merge. Intentionally scoped to "allow"
+// only — deny / ask / defaultMode are NEVER touched, even if a future preset
+// accidentally ships one (the schema whitelist test guards this).
+const ARRAY_KEYS_PERMISSIONS = ["allow"];
 
 function help() {
   console.log(
@@ -198,6 +208,7 @@ function mergeSandbox(existing, preset) {
       allowedDomains: [],
       allowWrite: [],
       excludedCommands: [],
+      permissionsAllow: [],
       other: [],
     },
     warnings: [],
@@ -279,6 +290,26 @@ function mergeSandbox(existing, preset) {
     diff.added.other.push(`sandbox.${k} = ${JSON.stringify(ps[k])}`);
   }
 
+  // permissions.allow — concat+dedupe; user entries kept first.
+  // Intentionally scoped to .allow only — deny/ask/defaultMode are never
+  // touched even if the preset accidentally includes them.
+  if (preset.permissions) {
+    for (const k of ARRAY_KEYS_PERMISSIONS) {
+      if (!Array.isArray(preset.permissions[k])) continue;
+      if (!merged.permissions) merged.permissions = {};
+      const before = new Set(merged.permissions[k] || []);
+      const next = dedupeConcat(merged.permissions[k], preset.permissions[k]);
+      const newOnes = next.filter((x) => !before.has(x));
+      merged.permissions[k] = next;
+      if (newOnes.length === 0) continue;
+      if (k === "allow") {
+        diff.added.permissionsAllow.push(...newOnes);
+      } else {
+        diff.added.other.push(`permissions.${k}: +${newOnes.length}`);
+      }
+    }
+  }
+
   return { merged, diff };
 }
 
@@ -298,6 +329,11 @@ function printDiff(diff) {
     console.log(`+ ${diff.added.excludedCommands.length} excludedCommands:`);
     for (const c of diff.added.excludedCommands) console.log(`    ${c}`);
     total += diff.added.excludedCommands.length;
+  }
+  if (diff.added.permissionsAllow.length > 0) {
+    console.log(`+ ${diff.added.permissionsAllow.length} permissions.allow:`);
+    for (const p of diff.added.permissionsAllow) console.log(`    ${p}`);
+    total += diff.added.permissionsAllow.length;
   }
   if (diff.added.other.length > 0) {
     console.log(`+ ${diff.added.other.length} other:`);

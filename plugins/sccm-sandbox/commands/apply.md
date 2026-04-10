@@ -1,13 +1,16 @@
 ---
-description: Merge a vetted sandbox.* preset into this project's Claude Code settings (default profile is `base`).
+description: Merge a vetted sandbox.* + permissions.allow preset into this project's Claude Code settings (default profile is `base`).
 argument-hint: [profile] [--dry-run] [--shared]
 allowed-tools: Bash(node:*)
 ---
 
 Apply a vetted sandbox preset to this project by running the bundled merge
-script. The script concats+dedupes array fields, preserves scalars the user
-already set, honors an explicit `sandbox.enabled: false` (with a warning),
-and never touches non-`sandbox` top-level keys.
+script. The script concats+dedupes array fields (including `permissions.allow`,
+which the `base` preset uses to pair with `excludedCommands` so tools like git
+and docker stop hitting permission prompts), preserves scalars the user already
+set, honors an explicit `sandbox.enabled: false` (with a warning), and never
+touches `permissions.deny` / `permissions.ask` / `permissions.defaultMode` or
+any other top-level key (`enabledPlugins`, `mcpServers`, `hooks`, …).
 
 ## Profiles
 

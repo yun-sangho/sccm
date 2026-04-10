@@ -12,6 +12,12 @@ keys are honored. A plugin cannot silently relax your security posture, so
 this plugin ships a **script-driven merge** that you invoke explicitly via
 a slash command.
 
+Once invoked, the script merges both the `sandbox.*` block and a matching
+`permissions.allow` block into your settings file — without the `allow`
+patterns that pair with `excludedCommands`, every `git status` or `docker
+info` would still hit a permission prompt. Other `permissions.*` keys
+(`deny`, `ask`, `defaultMode`) are never touched.
+
 ## Install
 
 ```
@@ -60,8 +66,15 @@ dangerous patterns it knows about (`git push --force main`,
 is gone for those commands. If you want stricter sandboxing, use `min`
 instead.
 
+The `base` preset also adds matching `Bash(<tool>:*)` entries to
+`permissions.allow`, so these tools run without a permission prompt as well
+as without a sandbox. If you want prompts for some of them, edit
+`.claude/settings.local.json` after applying and remove the corresponding
+`permissions.allow` entry.
+
 To narrow the scope after applying, edit `.claude/settings.local.json` and
-remove individual entries from `sandbox.excludedCommands`.
+remove individual entries from `sandbox.excludedCommands` and/or
+`permissions.allow`.
 
 ## Merge semantics
 
@@ -69,12 +82,15 @@ The merge is safe by construction:
 
 - Array fields (`allowedDomains`, `allowWrite`, `excludedCommands`, …) are
   concat + dedupe, with your existing entries kept first.
+- `permissions.allow` is concat + dedupe like the sandbox arrays — your
+  existing entries are kept first.
 - Scalar fields you already set are preserved — we only add keys you have
   not configured.
 - `sandbox.enabled === false` in your settings is **preserved with a
   warning**. We will not silently flip a deliberate opt-out.
-- Top-level keys outside `sandbox` (`permissions`, `enabledPlugins`, …)
-  are never touched.
+- All other top-level keys (`enabledPlugins`, `mcpServers`, `hooks`,
+  `statusLine`, `agent`) and all other `permissions.*` keys (`deny`, `ask`,
+  `defaultMode`) are never touched.
 - Writes are atomic (temp-file + rename).
 
 ## Known issues

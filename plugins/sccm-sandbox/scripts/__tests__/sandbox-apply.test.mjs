@@ -216,7 +216,7 @@ describe("mergeSandbox — array dedupe + ordering", () => {
 });
 
 describe("mergeSandbox — preserves user settings", () => {
-  test("non-sandbox top-level keys are untouched", () => {
+  test("non-sandbox top-level keys are untouched (min has no permissions block)", () => {
     const existing = {
       permissions: { allow: ["Bash(ls)"] },
       enabledPlugins: { "hooks-guard@sccm": true },
@@ -224,6 +224,7 @@ describe("mergeSandbox — preserves user settings", () => {
       sandbox: { network: { allowedDomains: [] } },
     };
     const { merged } = mergeSandbox(existing, loadPresetFile("min"));
+    // min ships no permissions block, so permissions.allow is unchanged.
     assert.deepEqual(merged.permissions, { allow: ["Bash(ls)"] });
     assert.deepEqual(merged.enabledPlugins, { "hooks-guard@sccm": true });
     assert.deepEqual(merged.mcpServers, { foo: { command: "bar" } });
@@ -276,11 +277,73 @@ describe("mergeSandbox — diff reporting", () => {
     assert.equal(second.diff.added.allowedDomains.length, 0);
     assert.equal(second.diff.added.excludedCommands.length, 0);
     assert.equal(second.diff.added.allowWrite.length, 0);
+    assert.equal(second.diff.added.permissionsAllow.length, 0);
+  });
+});
+
+describe("mergeSandbox — permissions.allow", () => {
+  test("merging base into {} carries permissions.allow patterns", () => {
+    const { merged } = mergeSandbox({}, loadPresetFile("base"));
+    assert.ok(Array.isArray(merged.permissions.allow));
+    assert.ok(merged.permissions.allow.includes("Bash(git:*)"));
+    assert.ok(merged.permissions.allow.includes("Bash(docker:*)"));
+    assert.ok(merged.permissions.allow.includes("Bash(docker compose:*)"));
+    assert.ok(merged.permissions.allow.includes("Bash(gh:*)"));
+    assert.ok(merged.permissions.allow.includes("Bash(npm:*)"));
+  });
+
+  test("preserves user permissions.allow first, appends and dedupes", () => {
+    const existing = {
+      permissions: { allow: ["Bash(ls)", "Bash(git:*)"] },
+    };
+    const { merged } = mergeSandbox(existing, loadPresetFile("base"));
+    const allow = merged.permissions.allow;
+    assert.equal(allow[0], "Bash(ls)");
+    assert.equal(allow[1], "Bash(git:*)");
+    assert.ok(allow.includes("Bash(docker:*)"));
+    assert.equal(
+      allow.filter((x) => x === "Bash(git:*)").length,
+      1,
+      "Bash(git:*) should be deduped"
+    );
+  });
+
+  test("re-applying base over its own output adds zero permissions.allow", () => {
+    const first = mergeSandbox({}, loadPresetFile("base"));
+    const second = mergeSandbox(first.merged, loadPresetFile("base"));
+    assert.equal(second.diff.added.permissionsAllow.length, 0);
+  });
+
+  test("never touches permissions.deny / ask / defaultMode", () => {
+    const existing = {
+      permissions: {
+        defaultMode: "ask",
+        deny: ["Bash(rm:*)"],
+        ask: ["Bash(curl:*)"],
+      },
+    };
+    const { merged } = mergeSandbox(existing, loadPresetFile("base"));
+    assert.equal(merged.permissions.defaultMode, "ask");
+    assert.deepEqual(merged.permissions.deny, ["Bash(rm:*)"]);
+    assert.deepEqual(merged.permissions.ask, ["Bash(curl:*)"]);
+    assert.ok(Array.isArray(merged.permissions.allow));
+    assert.ok(merged.permissions.allow.includes("Bash(git:*)"));
+  });
+
+  test("min preset does not create a permissions block", () => {
+    const { merged } = mergeSandbox({}, loadPresetFile("min"));
+    assert.equal(merged.permissions, undefined);
+  });
+
+  test("diff.added.permissionsAllow is populated on first apply", () => {
+    const { diff } = mergeSandbox({}, loadPresetFile("base"));
+    assert.ok(diff.added.permissionsAllow.length > 0);
+    assert.ok(diff.added.permissionsAllow.includes("Bash(git:*)"));
   });
 });
 
 describe("preset files — schema whitelist", () => {
-  const ALLOWED_TOP = new Set(["sandbox"]);
+  const ALLOWED_TOP = new Set(["sandbox", "permissions"]);
   const ALLOWED_SANDBOX = new Set([
     "enabled",
     "failIfUnavailable",
@@ -309,6 +372,10 @@ describe("preset files — schema whitelist", () => {
     "allowRead",
     "allowManagedReadPathsOnly",
   ]);
+  // Intentionally only "allow" — deny / ask / defaultMode must NEVER ship in
+  // a preset because the script would refuse to merge them anyway, and we
+  // do not want a preset to silently relax (deny→allow) or escalate (mode).
+  const ALLOWED_PERMISSIONS = new Set(["allow"]);
 
   for (const name of listProfiles()) {
     test(`${name}.json — only whitelisted keys`, () => {
@@ -324,6 +391,9 @@ describe("preset files — schema whitelist", () => {
       }
       for (const k of Object.keys(preset.sandbox?.filesystem || {})) {
         assert.ok(ALLOWED_FS.has(k), `unexpected sandbox.filesystem.${k}`);
+      }
+      for (const k of Object.keys(preset.permissions || {})) {
+        assert.ok(ALLOWED_PERMISSIONS.has(k), `unexpected permissions.${k}`);
       }
     });
 
