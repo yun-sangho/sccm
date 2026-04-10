@@ -14,7 +14,7 @@
       "name": "hooks-guard",
       "source": "./plugins/hooks-guard",
       "description": "Security guard hooks - blocks dangerous Bash commands and sensitive file access",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "author": {
         "name": "Sangho"
       },
