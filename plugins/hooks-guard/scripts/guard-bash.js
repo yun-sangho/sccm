@@ -187,23 +187,43 @@ const PATTERNS = [
 
 // ── Project-specific rules (always active regardless of safety level) ──
 
+// Template files that are meant to be checked in — mirrored from
+// guard-secrets.js ALLOWLIST so the two hooks stay aligned.
+const ENV_TEMPLATE_ALLOWLIST = [
+  /(^|\/)\.env\.example$/i,
+  /(^|\/)\.env\.sample$/i,
+  /(^|\/)\.env\.template$/i,
+  /(^|\/)\.env\.defaults$/i,
+];
+
 function checkProjectRules(cmd) {
   // Skip all checks for git commit (message content is not a command)
   if (/^\s*git\s+commit\b/.test(cmd)) return null;
 
-  // Env file commit prevention
-  if (/\bgit\s+add\s+.*\.env/.test(cmd)) {
-    return {
-      id: "git-add-env",
-      reason: ".env 파일을 git에 추가할 수 없습니다",
-    };
+  // Env file commit prevention — block real .env files, allow templates
+  const addMatch = cmd.match(/\bgit\s+add\b(.*)$/);
+  if (addMatch) {
+    const args = addMatch[1]
+      .split(/\s+/)
+      .filter((a) => a && !a.startsWith("-"));
+    const envArgs = args.filter((a) => /(^|\/)\.env(\.|$)/.test(a));
+    const hasBlockedEnv = envArgs.some(
+      (a) => !ENV_TEMPLATE_ALLOWLIST.some((rx) => rx.test(a)),
+    );
+    if (hasBlockedEnv) {
+      return {
+        id: "git-add-env",
+        reason:
+          "Cannot git add a .env secret file (templates like .env.example / .env.sample are allowed)",
+      };
+    }
   }
 
   if (/\bgit\s+add\s+(-a\b|-A\b|\.\s*$)/.test(cmd)) {
     return {
       id: "git-add-all",
       reason:
-        "git add -A / git add . 은 .env 파일을 포함할 수 있습니다. 개별 파일을 지정하세요.",
+        "git add -A / git add . may include .env files. Specify individual files instead.",
     };
   }
 
