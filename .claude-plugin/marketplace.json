@@ -61,7 +61,7 @@
       "name": "sccm-sandbox",
       "source": "./plugins/sccm-sandbox",
       "description": "Vetted sandbox.* presets + /sccm-sandbox:apply slash command",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "author": {
         "name": "Sangho"
       },

@@ -354,7 +354,19 @@ function atomicWrite(targetPath, content) {
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   const tmp = `${targetPath}.tmp.${process.pid}`;
   fs.writeFileSync(tmp, content);
-  fs.renameSync(tmp, targetPath);
+  try {
+    fs.renameSync(tmp, targetPath);
+  } catch (e) {
+    // rename can fail (EPERM under a sandbox that denies writes to the
+    // target, EXDEV across filesystems, etc.). Best-effort cleanup of the
+    // orphan tmp file so we don't leave litter on disk. The unlink error
+    // is intentionally swallowed — the original rename error is what the
+    // caller needs to see.
+    try {
+      fs.unlinkSync(tmp);
+    } catch {}
+    throw e;
+  }
 }
 
 function main(argv = process.argv.slice(2)) {
