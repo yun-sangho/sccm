@@ -186,6 +186,42 @@ describe("guard-bash", () => {
       assert.ok(result);
       assert.equal(result.id, "git-add-env");
     });
+    it("blocks git add .env.production", () => {
+      const result = checkProjectRules("git add .env.production");
+      assert.ok(result);
+      assert.equal(result.id, "git-add-env");
+    });
+    it("blocks git add -f .env.local", () => {
+      const result = checkProjectRules("git add -f .env.local");
+      assert.ok(result);
+      assert.equal(result.id, "git-add-env");
+    });
+    it("blocks mixed git add .env .env.example", () => {
+      const result = checkProjectRules("git add .env .env.example");
+      assert.ok(result);
+      assert.equal(result.id, "git-add-env");
+    });
+    it("allows git add .env.example", () => {
+      assert.equal(checkProjectRules("git add .env.example"), null);
+    });
+    it("allows git add .env.sample", () => {
+      assert.equal(checkProjectRules("git add .env.sample"), null);
+    });
+    it("allows git add .env.template", () => {
+      assert.equal(checkProjectRules("git add .env.template"), null);
+    });
+    it("allows git add .env.defaults", () => {
+      assert.equal(checkProjectRules("git add .env.defaults"), null);
+    });
+    it("allows git add -f .env.example", () => {
+      assert.equal(checkProjectRules("git add -f .env.example"), null);
+    });
+    it("allows git add config/.env.example", () => {
+      assert.equal(
+        checkProjectRules("git add config/.env.example"),
+        null,
+      );
+    });
   });
 
   describe("project: git add -A / git add .", () => {

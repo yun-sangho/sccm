@@ -30,7 +30,7 @@ async function main() {
       });
       block(
         "enforce-pnpm",
-        "이 프로젝트는 pnpm을 사용합니다. npm 대신 pnpm을 사용하세요."
+        "This project uses pnpm. Use pnpm instead of npm."
       );
     }
 
@@ -42,7 +42,7 @@ async function main() {
       });
       block(
         "enforce-npx",
-        "이 프로젝트는 pnpm을 사용합니다. npx 대신 pnpm dlx를 사용하세요."
+        "This project uses pnpm. Use pnpm dlx instead of npx."
       );
     }
 
