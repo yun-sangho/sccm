@@ -55,6 +55,58 @@ cd plugins/hooks-worktree
 node --test scripts/__tests__/*.test.js
 ```
 
+## Known issue on Claude Code 2.1.101 — and a one-command workaround
+
+On Claude Code 2.1.101, plugin-registered `WorktreeCreate` / `WorktreeRemove` hooks (the ones declared in `hooks/hooks.json`) are **silently dropped** by the runtime, so new worktrees are created with nothing copied into them. See [yun-sangho/sccm#9](https://github.com/yun-sangho/sccm/issues/9) and [anthropics/claude-code#46664](https://github.com/anthropics/claude-code/issues/46664) for the full diagnosis — the same events registered in `~/.claude/settings.json` do fire, so the bug is limited to plugin dispatch.
+
+Until that ships a fix, this plugin ships a one-command bridge:
+
+```
+/hooks-worktree:install-workaround      # install the bridge
+/hooks-worktree:uninstall-workaround    # remove it once upstream is fixed
+```
+
+The install command merges two entries into `~/.claude/settings.json` that point at the plugin's on-disk scripts via the stable marketplace path (`~/.claude/plugins/marketplaces/sccm/plugins/hooks-worktree/scripts/`). That path is the marketplace git checkout, not the per-version cache, so the bridge keeps working across plugin version bumps without re-running.
+
+The bridge is:
+
+- **Idempotent** — re-running `install` is a no-op.
+- **Non-destructive** — any pre-existing `WorktreeCreate` / `WorktreeRemove` entries the user authored themselves are preserved. Only entries marked with the `hooks-worktree@sccm/workaround` marker are touched on uninstall.
+- **Reversible** — `uninstall-workaround` removes exactly what `install-workaround` added and nothing else.
+
+If you'd rather edit `~/.claude/settings.json` by hand, the equivalent entries are:
+
+```jsonc
+{
+  "hooks": {
+    "WorktreeCreate": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$HOME/.claude/plugins/marketplaces/sccm/plugins/hooks-worktree/scripts/worktree-create.js\"",
+            "timeout": 600
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$HOME/.claude/plugins/marketplaces/sccm/plugins/hooks-worktree/scripts/worktree-remove.js\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
 ## Reporting bugs / suggesting features
 
 From inside Claude Code:
@@ -77,11 +129,17 @@ plugins/hooks-worktree/
 │   └── plugin.json
 ├── hooks/
 │   └── hooks.json           # WorktreeCreate (600s timeout), WorktreeRemove (30s)
+├── commands/
+│   ├── install-workaround.md     # bridge for Claude Code 2.1.101 dispatch bug
+│   ├── uninstall-workaround.md
+│   └── report-issue.md
 ├── scripts/
 │   ├── worktree-create.js
 │   ├── worktree-remove.js
+│   ├── install-workaround.js     # merges settings.json bridge entries
 │   └── __tests__/
-│       └── worktree-create.test.js
+│       ├── worktree-create.test.js
+│       └── install-workaround.test.js
 ├── package.json
 └── README.md
 ```
