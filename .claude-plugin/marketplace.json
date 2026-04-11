@@ -45,7 +45,7 @@
       "name": "hooks-worktree",
       "source": "./plugins/hooks-worktree",
       "description": "Git worktree automation - monorepo-safe .env mirroring + auto-detect dependency install (pnpm/npm/yarn/bun/uv/poetry/bundler/cargo/go/composer)",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "author": {
         "name": "Sangho"
       },

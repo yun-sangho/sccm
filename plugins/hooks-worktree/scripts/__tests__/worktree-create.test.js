@@ -151,6 +151,60 @@ describe("worktree-create", () => {
     });
   });
 
+  // ── Symlink scenarios ──
+
+  describe("findEnvFiles — symlinks", () => {
+    it("finds a symlinked .env.local whose target is a regular file", () => {
+      // .env.shared (real file) — does not match ENV_FILE_REGEX
+      // .env.local → .env.shared (symlink) — matches ENV_FILE_REGEX
+      const shared = path.join(tmpDir, ".env.shared");
+      fs.writeFileSync(shared, "SECRET=1\n");
+      fs.symlinkSync(shared, path.join(tmpDir, ".env.local"));
+
+      const found = findEnvFiles(tmpDir);
+      assert.deepEqual(found, [".env.local"]);
+    });
+
+    it("finds symlinked .env.local in nested subdir pointing up to a root file (monorepo)", () => {
+      // Mimics the issue reporter's layout:
+      //   .env.local                       (real)
+      //   apps/web/.env.local → ../../.env.local  (symlink)
+      fs.writeFileSync(path.join(tmpDir, ".env.local"), "ROOT=1\n");
+      const webDir = path.join(tmpDir, "apps", "web");
+      fs.mkdirSync(webDir, { recursive: true });
+      fs.symlinkSync(
+        path.join("..", "..", ".env.local"),
+        path.join(webDir, ".env.local")
+      );
+
+      const found = findEnvFiles(tmpDir).sort();
+      assert.deepEqual(found, [".env.local", "apps/web/.env.local"]);
+    });
+
+    it("skips broken symlinks silently", () => {
+      // .env → ./nonexistent (target doesn't exist)
+      fs.symlinkSync(
+        path.join(tmpDir, "nonexistent"),
+        path.join(tmpDir, ".env")
+      );
+
+      // Should not throw, should not include the broken link.
+      const found = findEnvFiles(tmpDir);
+      assert.deepEqual(found, []);
+    });
+
+    it("skips a symlink named like an env file whose target is a directory", () => {
+      // Defensive: a symlink named `.env` whose target is a directory
+      // must not be included, since we only copy files.
+      const realDir = path.join(tmpDir, "realDir");
+      fs.mkdirSync(realDir);
+      fs.symlinkSync(realDir, path.join(tmpDir, ".env"));
+
+      const found = findEnvFiles(tmpDir);
+      assert.deepEqual(found, []);
+    });
+  });
+
   // ── Monorepo scenarios ──
 
   describe("findEnvFiles — monorepo", () => {
