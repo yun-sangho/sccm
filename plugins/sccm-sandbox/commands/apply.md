@@ -1,6 +1,6 @@
 ---
 description: Merge a vetted sandbox.* + permissions.allow preset into this project's Claude Code settings (default profile is `base`).
-argument-hint: [profile] [--dry-run] [--shared]
+argument-hint: "[profile] [--dry-run] [--shared]"
 allowed-tools: Bash(node:*)
 ---
 

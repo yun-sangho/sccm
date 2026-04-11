@@ -1,6 +1,6 @@
 {
   "name": "hooks-permission-log",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Log permission-flow events (Pre/PermissionRequest/Post/Failure) and review them to refine sandbox and guard settings",
   "author": "Sangho",
   "license": "UNLICENSED",

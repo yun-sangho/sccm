@@ -1,6 +1,6 @@
 ---
 description: File GitHub issues for permission-log refinement suggestions (one per cmd_key, deduplicated, target yun-sangho/sccm).
-argument-hint: [--days=N] [--since=YYYY-MM-DD]
+argument-hint: "[--days=N] [--since=YYYY-MM-DD]"
 allowed-tools: Bash(node:*), Bash(gh:*)
 ---
 
