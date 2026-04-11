@@ -80,8 +80,26 @@ function findEnvFiles(root) {
           path.join(absDir, e.name),
           relDir ? `${relDir}/${e.name}` : e.name
         );
-      } else if (e.isFile() && ENV_FILE_REGEX.test(e.name)) {
-        results.push(relDir ? `${relDir}/${e.name}` : e.name);
+      } else if (ENV_FILE_REGEX.test(e.name)) {
+        // Accept regular files, and symlinks whose target is a regular file.
+        // Dirent.isFile() returns false for symlinks even when the target is
+        // a file, so monorepos that share a root .env.local via symlinks
+        // (e.g. apps/web/.env.local -> ../../.env.local) would otherwise be
+        // silently skipped. fs.copyFileSync follows the symlink at copy time
+        // and writes a real file in the worktree, which is what we want.
+        let isFile = e.isFile();
+        if (!isFile && e.isSymbolicLink()) {
+          try {
+            isFile = fs.statSync(path.join(absDir, e.name)).isFile();
+          } catch {
+            // Broken symlink or permission error — skip silently, matching
+            // the existing readdir error handling above.
+            isFile = false;
+          }
+        }
+        if (isFile) {
+          results.push(relDir ? `${relDir}/${e.name}` : e.name);
+        }
       }
     }
   }
