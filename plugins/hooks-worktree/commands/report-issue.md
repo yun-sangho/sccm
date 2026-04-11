@@ -1,6 +1,6 @@
 ---
 description: File a bug report or feature request for the hooks-worktree plugin at github.com/yun-sangho/sccm/issues. Auto-collects plugin version, OS, and recent context.
-argument-hint: [bug|feature] [optional: short title]
+argument-hint: "[bug|feature] [optional: short title]"
 allowed-tools: Bash(gh:*), Bash(uname:*), Bash(open:*), Bash(claude:*), Bash(cat:*), Bash(jq:*), Bash(node:*)
 ---
 

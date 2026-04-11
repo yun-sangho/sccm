@@ -1,6 +1,6 @@
 ---
 description: Review recent Bash permission events and suggest sandbox/guard refinements based on your approval history.
-argument-hint: [--days=N] [--since=YYYY-MM-DD] [--no-prune] [--json]
+argument-hint: "[--days=N] [--since=YYYY-MM-DD] [--no-prune] [--json]"
 allowed-tools: Bash(node:*)
 ---
 

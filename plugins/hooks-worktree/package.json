@@ -1,6 +1,6 @@
 {
   "name": "hooks-worktree",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Git worktree automation - creates a worktree, copies .env files (monorepo-safe), and installs dependencies via detected package manager",
   "author": "Sangho",
   "license": "UNLICENSED",
