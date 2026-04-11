@@ -40,18 +40,70 @@ Order of operations when modifying a plugin:
 1. Make the code/preset/hook/doc change under `plugins/<name>/`
 2. `pnpm run bump <name> <level>`
 3. `pnpm run verify-versions`
-4. `pnpm test` (or `pnpm run test:<name>`)
-5. Commit (the bump can be in the same commit as the change, or its own
+4. `claude plugin validate plugins/<name>`
+5. `pnpm test` (or `pnpm run test:<name>`)
+6. Commit (the bump can be in the same commit as the change, or its own
    commit immediately after — but never push the change without the bump)
+
+## Plugin validation rule — ALWAYS validate on change
+
+**If you modify any file under `plugins/<name>/`, you MUST run
+`claude plugin validate plugins/<name>` and confirm it passes before
+committing.**
+
+Why: Claude Code's validator catches silent failure modes that nothing
+else does, and they fail in ways the user never sees. Notably:
+
+- **Command frontmatter YAML parse errors.** A malformed `argument-hint`,
+  `allowed-tools`, or `description` in `commands/*.md` fails to parse,
+  and Claude Code "loads the command with empty metadata (all
+  frontmatter fields silently dropped)". The command still appears and
+  still runs — but with **no `allowed-tools` whitelist** (permission
+  scoping lost, every Bash call prompts), **no `description`** (blank in
+  the slash-command picker), and **no `argument-hint`** (no usage
+  guidance). `pnpm test` and `pnpm run verify-versions` do not catch
+  this. `claude plugin install` does not block on it either. The only
+  signal is the validator.
+- **Plugin manifest / hooks.json schema violations.** Same story — loads
+  with empty metadata, looks fine at a glance, silently drops fields.
+
+Concrete example of the trap: commit `e20f975` fixed 7 `commands/*.md`
+files across 5 plugins whose `argument-hint: [bug|feature] [optional:
+short title]` was being parsed as a YAML flow sequence and then failing
+at the second `[`. The bug had been in the repo since `cf5f14c` (the
+initial `report-issue` command commit) and nobody noticed — installs
+succeeded, tests passed, versions were consistent. Only `claude plugin
+validate` surfaced it.
+
+How:
+
+```
+claude plugin validate plugins/<name>
+```
+
+Expected output on success:
+
+```
+Validating plugin manifest: /path/to/plugin.json
+✔ Validation passed
+```
+
+If the validator emits a **warning** (`✔ Validation passed with
+warnings`) read it and decide — warnings are non-blocking but are usually
+signalling something worth fixing (e.g. missing `author` metadata).
+
+If the validator emits an **error** (`✘ Validation failed`), do not
+commit. Fix the underlying file, re-run, and only commit once it passes.
 
 ## Repo commands
 
 | Command | What it does |
 |---|---|
-| `pnpm test` | Run every plugin's tests (337+ tests across 4 plugins) |
+| `pnpm test` | Run every plugin's tests |
 | `pnpm run test:<plugin>` | Run one plugin's tests |
 | `pnpm run verify-versions` | Assert all three version files agree per plugin |
 | `pnpm run bump <plugin> <level>` | Bump a plugin's version in all three files |
+| `claude plugin validate plugins/<name>` | Validate one plugin's manifest, hooks, and command frontmatter |
 
 ## Package manager
 
