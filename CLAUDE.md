@@ -111,7 +111,3 @@ This repo uses **pnpm**. The `hooks-pnpm` plugin enforces this — `npm`
 commands at the repo root are blocked by a PreToolUse hook. Always use
 `pnpm`.
 
-## Plugin integration testing
-
-See [docs/plugin-integration-testing.md](docs/plugin-integration-testing.md)
-for how to run unit tests and integration tests (`claude -p --plugin-dir`).
