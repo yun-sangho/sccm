@@ -50,10 +50,70 @@ No port allocation, no `lsof`/process killing. Keeps the automation small and pr
 
 ## Tests
 
+### Unit tests
+
 ```bash
 cd plugins/hooks-worktree
 node --test scripts/__tests__/*.test.js
 ```
+
+### Integration tests (direct invocation)
+
+The hooks fire on `WorktreeCreate` / `WorktreeRemove` events, which
+require a real git repo. Test by piping JSON into the scripts directly.
+
+**Prerequisites:** a temporary git repo with `.env` files.
+
+```bash
+PLUGIN="plugins/hooks-worktree"
+
+# 1. Create a test git repo
+REPO=$(mktemp -d)
+cd "$REPO"
+git init -q
+git config user.email "test@test.com"
+git config user.name "test"
+echo "SECRET=123" > .env
+echo "LOCAL=456" > .env.local
+echo '{"name":"wt-test"}' > package.json
+echo "hello" > README.md
+git add -A && git commit -q -m "init" --no-gpg-sign
+
+# 2. Test worktree-create
+#    stdin: {"name": "<worktree-name>"}
+#    Creates .claude/worktrees/<name>, copies .env files, runs install
+echo '{"name":"test-wt"}' \
+  | CLAUDE_PLUGIN_ROOT="$PLUGIN" CLAUDE_PROJECT_DIR="$REPO" \
+    node "$PLUGIN/scripts/worktree-create.js" 2>&1
+echo "EXIT: $?"
+
+# 3. Verify .env files were copied
+WT="$REPO/.claude/worktrees/test-wt"
+diff -q "$REPO/.env" "$WT/.env"           # should match
+diff -q "$REPO/.env.local" "$WT/.env.local"  # should match
+
+# 4. Test worktree-remove
+#    stdin: {"worktree_path": "<absolute-path>"}
+#    Removes worktree + deletes worktree-* branch
+echo "{\"worktree_path\":\"$WT\"}" \
+  | CLAUDE_PLUGIN_ROOT="$PLUGIN" CLAUDE_PROJECT_DIR="$REPO" \
+    node "$PLUGIN/scripts/worktree-remove.js" 2>&1
+echo "EXIT: $?"
+
+# 5. Verify cleanup
+[ ! -d "$WT" ] && echo "✓ worktree removed" || echo "✗ worktree still exists"
+
+# Cleanup
+rm -rf "$REPO"
+```
+
+**Key points:**
+- `worktree-create.js` reads `{"name": "..."}` from stdin and uses
+  `CLAUDE_PROJECT_DIR` as the base repo path.
+- `worktree-remove.js` reads `{"worktree_path": "..."}` from stdin
+  (the absolute path to the worktree directory).
+- Both scripts require a real git repo with at least one commit —
+  `git worktree add` fails on bare/empty repos.
 
 ## Known issue on Claude Code 2.1.101 — and a one-command workaround
 
