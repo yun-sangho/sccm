@@ -91,41 +91,22 @@ Blocks access to sensitive files (keys, credentials, environment variables).
 
 **Generic `.env*` reference guard** (high level and above):
 
-Any Bash command referencing a `.env*` file is blocked by default, unless
-the command verb is on the **allow list**. This catches indirect leaks
-from tools like `docker compose --env-file .env.local config`, `dotenv`,
-`envsubst`, `sed`, and any future tool that reads `.env` files.
+Any Bash command referencing a `.env*` file is blocked by default. The guard
+uses a **two-layer matching system** to catch indirect leaks from tools like
+`docker compose --env-file .env.local config`, `dotenv`, `envsubst`, `sed`,
+and any future tool that reads `.env` files.
 
-#### Configuring the allow list
+#### Two-layer matching
 
-Create `guard-secrets.config.json` at one of these locations (first found wins, full replacement):
+| Layer | Source | Matching | Editable? |
+|-------|--------|----------|-----------|
+| **Built-in safe commands** | Hardcoded in guard-secrets.js | Prefix match (`"ls"` allows `ls -la .env`) | No — curated safe verbs |
+| **User exceptions** | `guard-secrets.config.json` | **Exact match** (`"grep SECRET .env"` allows only that exact command) | Yes — via config file or `/guard-allow` |
 
-| Priority | Path | Use case |
-|----------|------|----------|
-| 1 (highest) | `{project}/.claude/guard-secrets.config.json` | Team/project policy (commit to repo) |
-| 2 | `~/.claude/guard-secrets.config.json` | Personal defaults (all projects) |
-| 3 (fallback) | Built-in defaults | Zero-config safe defaults |
+Built-in defaults are **always active**. User exceptions are **additive** (they
+do not replace the defaults).
 
-Config file discovery uses `CLAUDE_PROJECT_DIR` and `HOME`, not `CLAUDE_PLUGIN_ROOT` —
-the config location is fully decoupled from where the plugin is installed.
-
-Format:
-
-```json
-{
-  "envRefAllowCommands": [
-    "ls", "stat", "find", "echo",
-    "git log", "git status", "git add",
-    "docker compose up"
-  ]
-}
-```
-
-Each entry is a **command prefix**. `"git log"` allows `git log --all -- .env`
-but NOT `git show .env`. `"docker compose up"` allows `docker compose up -d`
-but NOT `docker compose config`.
-
-**Default allow list** (safe commands that never read file content):
+#### Built-in safe commands (prefix matching, always active)
 
 `ls`, `stat`, `file`, `test`, `touch`, `chmod`, `chown`, `chgrp`, `du`,
 `find`, `fd`, `locate`, `which`, `whereis`,
@@ -137,8 +118,50 @@ but NOT `docker compose config`.
 `git fetch`, `git pull`, `git push`, `git clone`, `git init`,
 `git merge`, `git rebase`, `git cherry-pick`
 
-**Not on default allow list** (blocked): `cat`, `source`, `grep`, `docker`,
+**Not on the list** (blocked by default): `cat`, `source`, `grep`, `docker`,
 `sed`, `awk`, `diff`, `git show`, `git diff`, any unknown command.
+
+#### User exceptions (exact match, via config file)
+
+Create `guard-secrets.config.json` at one of these locations (first found wins):
+
+| Priority | Path | Use case |
+|----------|------|----------|
+| 1 (highest) | `{project}/.claude/guard-secrets.config.json` | Team/project policy (commit to repo) |
+| 2 | `~/.claude/guard-secrets.config.json` | Personal defaults (all projects) |
+
+Config file discovery uses `CLAUDE_PROJECT_DIR` and `HOME`, not `CLAUDE_PLUGIN_ROOT` —
+the config location is fully decoupled from where the plugin is installed.
+
+Format:
+
+```json
+{
+  "envRefAllowCommands": [
+    "grep SECRET .env",
+    "docker compose --env-file .env.staging up -d",
+    "sed -i 's/old/new/' .env.local"
+  ]
+}
+```
+
+Each entry is an **exact command string**. The trimmed command must match the
+entry exactly — no prefix matching, no wildcards. This is intentionally strict:
+`"grep SECRET .env"` allows only `grep SECRET .env`, not `grep API_KEY .env`.
+
+If you need multiple variants, add each one separately.
+
+#### Managing exceptions via slash commands
+
+```
+/hooks-guard:guard-allow add "grep SECRET .env"           # project-level (default)
+/hooks-guard:guard-allow add "grep SECRET .env" --user    # user-level
+/hooks-guard:guard-allow remove "grep SECRET .env"        # remove entry
+/hooks-guard:guard-config                                 # view current config
+```
+
+The `/guard-allow` command uses the Read and Write tools (not Bash) to edit the
+config file, so the guard hook itself won't block the operation.
 
 **Allowlist** — these files are always accessible:
 
@@ -202,7 +225,15 @@ cd plugins/hooks-guard
 node --test
 ```
 
-## Reporting bugs / suggesting features
+## Slash commands
+
+| Command | Description |
+|---------|-------------|
+| `/hooks-guard:guard-allow` | Add or remove exact-match command exceptions for the `.env` reference guard |
+| `/hooks-guard:guard-config` | View the current guard configuration (built-in defaults + user exceptions) |
+| `/hooks-guard:report-issue` | File a bug report or feature request at GitHub |
+
+### Reporting bugs / suggesting features
 
 From inside Claude Code:
 
@@ -232,6 +263,10 @@ plugins/hooks-guard/
 │       ├── guard-bash.test.js
 │       ├── guard-secrets.test.js
 │       └── utils.test.js
+├── commands/
+│   ├── guard-allow.md       # /guard-allow slash command
+│   ├── guard-config.md      # /guard-config slash command
+│   └── report-issue.md      # /report-issue slash command
 ├── package.json
 └── README.md
 ```

@@ -13,7 +13,7 @@ const {
   checkBashCommand,
   checkBashSegment,
   checkEnvFileReference,
-  loadEnvRefAllowCommands,
+  loadUserEnvRefAllowCommands,
   matchesAllowEntry,
   cleanToken,
   check,
@@ -749,9 +749,9 @@ describe("guard-secrets", () => {
     });
   });
 
-  // ── Config file loading ──
+  // ── Config file loading (user exceptions — exact match) ──
 
-  describe("loadEnvRefAllowCommands: config file discovery", () => {
+  describe("loadUserEnvRefAllowCommands: config file discovery", () => {
     let tmpProject;
     let tmpHome;
     let savedProjectDir;
@@ -784,46 +784,65 @@ describe("guard-secrets", () => {
     }
 
     it("loads project-level config when CLAUDE_PROJECT_DIR is set", () => {
-      writeConfig(tmpProject, ["grep", "docker compose up"]);
+      writeConfig(tmpProject, ["grep SECRET .env", "docker compose up"]);
       process.env.CLAUDE_PROJECT_DIR = tmpProject;
-      const result = loadEnvRefAllowCommands();
-      assert.deepEqual(result, ["grep", "docker compose up"]);
+      const result = loadUserEnvRefAllowCommands();
+      assert.deepEqual(result, ["grep SECRET .env", "docker compose up"]);
     });
 
     it("loads user-level config when project-level absent", () => {
-      writeConfig(tmpHome, ["awk"]);
-      // Point project dir to a location with no config
+      writeConfig(tmpHome, ["awk '{print}' .env"]);
       process.env.CLAUDE_PROJECT_DIR = tmpProject;
-      // Mock homedir by writing to tmpHome — we need to override os.homedir
-      // Instead, write project-level as absent and set HOME
       process.env.HOME = tmpHome;
       _resetEnvRefCache();
-      const result = loadEnvRefAllowCommands();
-      assert.deepEqual(result, ["awk"]);
+      const result = loadUserEnvRefAllowCommands();
+      assert.deepEqual(result, ["awk '{print}' .env"]);
     });
 
-    it("falls back to defaults when no config files exist", () => {
+    it("returns empty array when no config files exist", () => {
       process.env.CLAUDE_PROJECT_DIR = tmpProject;
       process.env.HOME = tmpProject; // no .claude/ dir here either
-      const result = loadEnvRefAllowCommands();
-      assert.deepEqual(result, DEFAULT_ENV_REF_ALLOW_COMMANDS);
+      const result = loadUserEnvRefAllowCommands();
+      assert.deepEqual(result, []);
     });
 
     it("project-level takes priority over user-level", () => {
-      writeConfig(tmpProject, ["proj-tool"]);
-      writeConfig(tmpHome, ["home-tool"]);
+      writeConfig(tmpProject, ["proj-cmd .env"]);
+      writeConfig(tmpHome, ["home-cmd .env"]);
       process.env.CLAUDE_PROJECT_DIR = tmpProject;
       process.env.HOME = tmpHome;
-      const result = loadEnvRefAllowCommands();
-      assert.deepEqual(result, ["proj-tool"]);
+      const result = loadUserEnvRefAllowCommands();
+      assert.deepEqual(result, ["proj-cmd .env"]);
     });
 
-    it("custom allow entry enables previously-blocked command", () => {
-      writeConfig(tmpProject, ["grep", "sed"]);
+    it("exact-match user entry enables previously-blocked command", () => {
+      writeConfig(tmpProject, ["grep SECRET .env", "sed 's/x/y/' .env"]);
       process.env.CLAUDE_PROJECT_DIR = tmpProject;
-      // grep .env is blocked with defaults but should be allowed with custom config
+      // exact match passes
       assert.ok(!checkEnvFileReference("grep SECRET .env").blocked);
       assert.ok(!checkEnvFileReference("sed 's/x/y/' .env").blocked);
+    });
+
+    it("user config uses exact match — different args still blocked", () => {
+      writeConfig(tmpProject, ["grep SECRET .env"]);
+      process.env.CLAUDE_PROJECT_DIR = tmpProject;
+      // exact match passes
+      assert.ok(!checkEnvFileReference("grep SECRET .env").blocked);
+      // different args → still blocked (not a prefix match)
+      assert.ok(checkEnvFileReference("grep API_KEY .env").blocked);
+      assert.ok(checkEnvFileReference("grep .env").blocked);
+    });
+
+    it("built-in defaults still work alongside user config", () => {
+      writeConfig(tmpProject, ["grep SECRET .env"]);
+      process.env.CLAUDE_PROJECT_DIR = tmpProject;
+      // built-in defaults (prefix match) still active
+      assert.ok(!checkEnvFileReference("ls -la .env").blocked);
+      assert.ok(!checkEnvFileReference("git log --all -- .env").blocked);
+      // user exact match also works
+      assert.ok(!checkEnvFileReference("grep SECRET .env").blocked);
+      // non-matching still blocked
+      assert.ok(checkEnvFileReference("docker compose --env-file .env up").blocked);
     });
 
     it("skips invalid JSON config gracefully", () => {
@@ -835,8 +854,8 @@ describe("guard-secrets", () => {
       );
       process.env.CLAUDE_PROJECT_DIR = tmpProject;
       process.env.HOME = tmpHome; // no user-level config
-      const result = loadEnvRefAllowCommands();
-      assert.deepEqual(result, DEFAULT_ENV_REF_ALLOW_COMMANDS);
+      const result = loadUserEnvRefAllowCommands();
+      assert.deepEqual(result, []);
     });
 
     it("skips config with missing envRefAllowCommands key", () => {
@@ -848,8 +867,8 @@ describe("guard-secrets", () => {
       );
       process.env.CLAUDE_PROJECT_DIR = tmpProject;
       process.env.HOME = tmpHome;
-      const result = loadEnvRefAllowCommands();
-      assert.deepEqual(result, DEFAULT_ENV_REF_ALLOW_COMMANDS);
+      const result = loadUserEnvRefAllowCommands();
+      assert.deepEqual(result, []);
     });
   });
 });

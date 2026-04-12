@@ -231,11 +231,11 @@ const BASH_PATTERNS = [
   },
 ];
 
-// ── User-configurable allow list for generic .env* reference guard ──
+// ── Built-in safe commands for generic .env* reference guard ──
 //
-// Commands on this list are allowed to reference .env files without being
-// blocked by the generic guard. The list is loaded from a config file at
-// project-level or user-level, falling back to hardcoded defaults.
+// These commands are known-safe when referencing .env files (they never
+// read file content). Matched via prefix: "ls" allows "ls -la .env".
+// Always active regardless of user config.
 
 const DEFAULT_ENV_REF_ALLOW_COMMANDS = [
   // File metadata — never reads content
@@ -261,13 +261,24 @@ const DEFAULT_ENV_REF_ALLOW_COMMANDS = [
   "git merge", "git rebase", "git cherry-pick",
 ];
 
+// ── User-configurable exact-match exceptions ──
+//
+// Loaded from guard-secrets.config.json at project-level or user-level.
+// These are ADDITIVE to the built-in defaults above, and use EXACT
+// matching (cmd.trim() === entry) for maximum tightness.
+//
+// Discovery order (first found wins):
+//   1. {CLAUDE_PROJECT_DIR}/.claude/guard-secrets.config.json  (project)
+//   2. ~/.claude/guard-secrets.config.json                     (user)
+//   3. Empty array (no user exceptions)
+
 const CONFIG_FILENAME = "guard-secrets.config.json";
 
 // Cache: loaded once per process (hooks are short-lived, one invocation = one process)
-let _envRefAllowCommands = null;
+let _userEnvRefAllowCommands = null;
 
-function loadEnvRefAllowCommands() {
-  if (_envRefAllowCommands !== null) return _envRefAllowCommands;
+function loadUserEnvRefAllowCommands() {
+  if (_userEnvRefAllowCommands !== null) return _userEnvRefAllowCommands;
 
   // Build candidate paths — project-level first, then user-level.
   // Uses CLAUDE_PROJECT_DIR (set by Claude Code runtime) with cwd fallback,
@@ -294,21 +305,21 @@ function loadEnvRefAllowCommands() {
       const raw = fs.readFileSync(configPath, "utf8");
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed.envRefAllowCommands)) {
-        _envRefAllowCommands = parsed.envRefAllowCommands;
-        return _envRefAllowCommands;
+        _userEnvRefAllowCommands = parsed.envRefAllowCommands;
+        return _userEnvRefAllowCommands;
       }
     } catch {
       // File not found or invalid JSON — try next candidate
     }
   }
 
-  _envRefAllowCommands = DEFAULT_ENV_REF_ALLOW_COMMANDS;
-  return _envRefAllowCommands;
+  _userEnvRefAllowCommands = []; // no user exceptions
+  return _userEnvRefAllowCommands;
 }
 
 // Exposed for testing — resets the cached allow list
 function _resetEnvRefCache() {
-  _envRefAllowCommands = null;
+  _userEnvRefAllowCommands = null;
 }
 
 // Check whether cmd starts with an allowed command prefix.
@@ -344,9 +355,14 @@ function checkEnvFileReference(cmd) {
     if (!ENV_DOTFILE.test(cleaned)) continue;
     if (ALLOWLIST.some((p) => p.test(cleaned))) continue;
 
-    // Check user-configurable allow-command list
-    const allowCommands = loadEnvRefAllowCommands();
-    if (allowCommands.some((entry) => matchesAllowEntry(cmd, entry))) continue;
+    // Layer 1: Built-in safe commands — prefix matching, always active.
+    // "ls" allows "ls -la .env", "git log" allows "git log -- .env".
+    if (DEFAULT_ENV_REF_ALLOW_COMMANDS.some((entry) => matchesAllowEntry(cmd, entry))) continue;
+
+    // Layer 2: User-configured exceptions — exact match only.
+    // User registers "grep SECRET .env" → only that exact command passes.
+    const userCommands = loadUserEnvRefAllowCommands();
+    if (userCommands.some((entry) => cmd.trim() === entry)) continue;
 
     return {
       blocked: true,
@@ -470,12 +486,13 @@ if (require.main === module) {
     SAFETY_LEVEL,
     DEFAULT_ENV_REF_ALLOW_COMMANDS,
     ENV_DOTFILE,
+    CONFIG_FILENAME,
     check,
     checkFilePath,
     checkBashCommand,
     checkBashSegment,
     checkEnvFileReference,
-    loadEnvRefAllowCommands,
+    loadUserEnvRefAllowCommands,
     matchesAllowEntry,
     cleanToken,
     isAllowlisted,
