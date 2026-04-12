@@ -116,23 +116,55 @@ commands at the repo root are blocked by a PreToolUse hook. Always use
 Unit tests (`pnpm test`) verify logic, but **integration tests** verify
 that the installed plugin actually blocks/allows commands correctly.
 
-### Quick setup (run once per session)
+### Quick setup — `--plugin-dir` (recommended)
+
+The fastest way to test a plugin. No marketplace registration or install
+needed — loads the plugin directly from source:
 
 ```bash
-# 1. Register the local marketplace
+# Start a new Claude Code session with the plugin loaded from source
+claude --plugin-dir plugins/hooks-guard
+
+# Load multiple plugins at once
+claude --plugin-dir plugins/hooks-guard --plugin-dir plugins/hooks-pnpm
+
+# Non-interactive test with --plugin-dir
+claude -p "Execute: ls -la .env" \
+  --plugin-dir plugins/hooks-guard \
+  --allowedTools "Bash" 2>&1
+```
+
+If a `--plugin-dir` plugin has the same name as an installed marketplace
+plugin, the local copy takes priority for that session.
+
+**Hot-reloading after code changes:** Run `/reload-plugins` inside the
+session to pick up changes without restarting. This reloads hooks,
+skills, agents, and plugin MCP/LSP servers.
+
+**Testing plugin components:**
+- Try skills with `/plugin-name:skill-name`
+- Verify agents appear in `/agents`
+- Check hooks fire as expected
+
+### Quick setup — marketplace install (alternative)
+
+Use this when you need to test the exact install/cache flow:
+
+```bash
+# 1. Register the local marketplace (once)
 claude plugin marketplace add /home/user/sccm
 
-# 2. Install the plugin you want to test
+# 2. Install the plugin
 claude plugin install hooks-guard@sccm
 
-# 3. Verify installation
+# 3. Verify
 claude plugin list
 # Expected: hooks-guard@sccm  Version: X.Y.Z  Status: ✔ enabled
 ```
 
-**Note:** Hooks from newly installed plugins only take effect on the
-**next** Claude Code session. For the current session, test via direct
-script invocation (see below).
+**Note:** After install/uninstall, run `/reload-plugins` to apply changes
+in the current session. Without it, the old hooks remain loaded until
+the session restarts.
 
 ### Testing hooks via direct invocation
 
@@ -258,7 +290,7 @@ The most realistic test: spawn a child `claude -p` process with the
 plugin installed. The child process runs with hooks fully active (unlike
 the current session where hooks only activate after restart).
 
-**Prerequisites:** plugin must be installed (see Quick setup above).
+**Prerequisites:** `--plugin-dir` flag (no install needed).
 
 **Key flag:** Use `--system-prompt` to override the child Claude's
 safety judgment so it actually *attempts* to run dangerous commands
@@ -273,18 +305,22 @@ the Bash tool and report the output."
 
 # Test: should be BLOCKED (generic-env-ref)
 claude -p "Execute: grep SECRET /path/to/.env" \
+  --plugin-dir plugins/hooks-guard \
   --system-prompt "$SYS" --allowedTools "Bash" 2>&1
 
 # Test: should be ALLOWED (built-in safe command)
 claude -p "Execute: ls -la /path/to/.env" \
+  --plugin-dir plugins/hooks-guard \
   --system-prompt "$SYS" --allowedTools "Bash" 2>&1
 
 # Test: should be BLOCKED (cat-env pattern)
 claude -p "Execute: cat /path/to/.env" \
+  --plugin-dir plugins/hooks-guard \
   --system-prompt "$SYS" --allowedTools "Bash" 2>&1
 
 # Test: should be ALLOWED (template allowlist)
 claude -p "Execute: cat /path/to/.env.example" \
+  --plugin-dir plugins/hooks-guard \
   --system-prompt "$SYS" --allowedTools "Bash" 2>&1
 ```
 
@@ -298,10 +334,12 @@ echo '{"envRefAllowCommands":["grep SECRET /path/to/.env"]}' \
 
 # Step 2: Test — this exact command should now pass
 claude -p "Execute: grep SECRET /path/to/.env" \
+  --plugin-dir plugins/hooks-guard \
   --system-prompt "$SYS" --allowedTools "Bash" 2>&1
 
 # Step 3: Different args — still blocked (exact match)
 claude -p "Execute: grep DB_PASSWORD /path/to/.env" \
+  --plugin-dir plugins/hooks-guard \
   --system-prompt "$SYS" --allowedTools "Bash" 2>&1
 
 # Cleanup
@@ -314,6 +352,10 @@ rm .claude/guard-secrets.config.json
 - The child Claude may commit/push changes if it has git access. Use
   `--allowedTools "Bash"` to limit available tools.
 - If the child Claude creates unwanted commits, revert with `git revert`.
+- If the parent session also has the plugin installed/loaded, its hooks
+  will see `.env` in the `claude -p` command string and may block it.
+  Either uninstall + `/reload-plugins`, or write the test to a shell
+  script and run that instead.
 
 ### Re-installing after code changes
 
