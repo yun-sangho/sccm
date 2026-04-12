@@ -10,6 +10,9 @@
  *   high     — + secrets files, env dumps, exfiltration attempts
  *   strict   — + database configs, any config that might contain secrets
  */
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
 const {
   LEVELS,
   log,
@@ -217,7 +220,146 @@ const BASH_PATTERNS = [
       /\brm\b(?:\s+-\S+(?:\s+\S+)?)*\s+[^\s|;&<>`]*(id_rsa|id_ed25519|id_ecdsa|authorized_keys)\b/i,
     reason: "Deleting SSH key",
   },
+  // HIGH — docker compose config reads .env implicitly (no .env in command text)
+  {
+    level: "high",
+    id: "docker-compose-config",
+    regex:
+      /\bdocker(?:-compose|\s+compose)\b(?:\s+-\S+(?:\s+\S+)?)*\s+config\b/i,
+    reason:
+      "docker compose config interpolates ${VAR} from .env into stdout",
+  },
 ];
+
+// ── User-configurable allow list for generic .env* reference guard ──
+//
+// Commands on this list are allowed to reference .env files without being
+// blocked by the generic guard. The list is loaded from a config file at
+// project-level or user-level, falling back to hardcoded defaults.
+
+const DEFAULT_ENV_REF_ALLOW_COMMANDS = [
+  // File metadata — never reads content
+  "ls", "stat", "file", "test", "touch", "chmod", "chown", "chgrp", "du",
+  // File search — locates, doesn't read
+  "find", "fd", "locate", "which", "whereis",
+  // Hash output, not content
+  "sha256sum", "sha1sum", "md5sum", "sha512sum", "cksum", "b2sum",
+  // Move/rename, doesn't read
+  "mv", "rename",
+  // Path string operations
+  "basename", "dirname", "realpath", "readlink",
+  // Prose — .env is a string literal, not a file read
+  "echo", "printf",
+  // Line/word count only
+  "wc",
+  // GitHub CLI — issue/PR bodies mentioning .env
+  "gh",
+  // Safe git subcommands (NOT git show, git diff, git blame — those read content)
+  "git log", "git status", "git branch", "git remote", "git tag",
+  "git add", "git rm", "git checkout", "git switch",
+  "git fetch", "git pull", "git push", "git clone", "git init",
+  "git merge", "git rebase", "git cherry-pick",
+];
+
+const CONFIG_FILENAME = "guard-secrets.config.json";
+
+// Cache: loaded once per process (hooks are short-lived, one invocation = one process)
+let _envRefAllowCommands = null;
+
+function loadEnvRefAllowCommands() {
+  if (_envRefAllowCommands !== null) return _envRefAllowCommands;
+
+  // Build candidate paths — project-level first, then user-level.
+  // Uses CLAUDE_PROJECT_DIR (set by Claude Code runtime) with cwd fallback,
+  // matching the same pattern as utils.js LOG_DIR.
+  // Does NOT use CLAUDE_PLUGIN_ROOT — config is decoupled from plugin install location.
+  const candidates = [
+    path.join(
+      process.env.CLAUDE_PROJECT_DIR || process.cwd(),
+      ".claude",
+      CONFIG_FILENAME
+    ),
+  ];
+  try {
+    const home = os.homedir();
+    if (home) {
+      candidates.push(path.join(home, ".claude", CONFIG_FILENAME));
+    }
+  } catch {
+    // os.homedir() can throw on misconfigured systems — skip user-level
+  }
+
+  for (const configPath of candidates) {
+    try {
+      const raw = fs.readFileSync(configPath, "utf8");
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed.envRefAllowCommands)) {
+        _envRefAllowCommands = parsed.envRefAllowCommands;
+        return _envRefAllowCommands;
+      }
+    } catch {
+      // File not found or invalid JSON — try next candidate
+    }
+  }
+
+  _envRefAllowCommands = DEFAULT_ENV_REF_ALLOW_COMMANDS;
+  return _envRefAllowCommands;
+}
+
+// Exposed for testing — resets the cached allow list
+function _resetEnvRefCache() {
+  _envRefAllowCommands = null;
+}
+
+// Check whether cmd starts with an allowed command prefix.
+// "git log" matches "git log --all -- .env" but NOT "git logger".
+function matchesAllowEntry(cmd, entry) {
+  const trimmed = cmd.trimStart();
+  if (!trimmed.startsWith(entry)) return false;
+  const next = trimmed[entry.length];
+  return next === undefined || /\s/.test(next);
+}
+
+// ── Generic .env* reference guard ──
+//
+// Any command that references a .env dotfile is blocked unless the command
+// verb is on the user-configurable allow list. This catches leaks from
+// docker compose --env-file, dotenv, envsubst, sed, and any future tool.
+
+const ENV_DOTFILE = /(?:^|[/\\:])\.env(?:\.[^/\\]*)?$/i;
+
+function cleanToken(token) {
+  return token
+    .replace(/^['"`]+|['"`]+$/g, "")              // strip quotes
+    .replace(/^-{1,2}[a-zA-Z][-a-zA-Z0-9]*=/, "") // --flag=value → value
+    .replace(/^[0-9]*[<>]+/, "");                  // strip redirects
+}
+
+function checkEnvFileReference(cmd) {
+  if (!cmd || !/\.env/i.test(cmd)) return { blocked: false, pattern: null };
+
+  const tokens = cmd.match(/[^\s]+/g) || [];
+  for (const token of tokens) {
+    const cleaned = cleanToken(token);
+    if (!ENV_DOTFILE.test(cleaned)) continue;
+    if (ALLOWLIST.some((p) => p.test(cleaned))) continue;
+
+    // Check user-configurable allow-command list
+    const allowCommands = loadEnvRefAllowCommands();
+    if (allowCommands.some((entry) => matchesAllowEntry(cmd, entry))) continue;
+
+    return {
+      blocked: true,
+      pattern: {
+        level: "high",
+        id: "generic-env-ref",
+        regex: ENV_DOTFILE,
+        reason: `Command references ${cleaned} — may leak secrets from .env file`,
+      },
+    };
+  }
+  return { blocked: false, pattern: null };
+}
 
 function isAllowlisted(filePath) {
   return filePath && ALLOWLIST.some((p) => p.test(filePath));
@@ -254,6 +396,13 @@ function checkBashSegment(cmd, safetyLevel = SAFETY_LEVEL) {
     if (LEVELS[p.level] <= threshold && p.regex.test(cmd)) {
       return { blocked: true, pattern: p };
     }
+  }
+  // Generic .env* reference check — catches ANY command referencing .env files
+  // not already handled by specific patterns above. Uses user-configurable
+  // allow-command list. Only active at 'high' level and above.
+  if (threshold >= LEVELS["high"]) {
+    const envRef = checkEnvFileReference(cmd);
+    if (envRef.blocked) return envRef;
   }
   return { blocked: false, pattern: null };
 }
@@ -319,10 +468,17 @@ if (require.main === module) {
     BASH_PATTERNS,
     ALLOWLIST,
     SAFETY_LEVEL,
+    DEFAULT_ENV_REF_ALLOW_COMMANDS,
+    ENV_DOTFILE,
     check,
     checkFilePath,
     checkBashCommand,
     checkBashSegment,
+    checkEnvFileReference,
+    loadEnvRefAllowCommands,
+    matchesAllowEntry,
+    cleanToken,
     isAllowlisted,
+    _resetEnvRefCache,
   };
 }

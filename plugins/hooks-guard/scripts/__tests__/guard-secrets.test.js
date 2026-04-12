@@ -1,13 +1,24 @@
-const { describe, it } = require("node:test");
+const { describe, it, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
 const {
   SENSITIVE_FILES,
   BASH_PATTERNS,
   ALLOWLIST,
+  DEFAULT_ENV_REF_ALLOW_COMMANDS,
+  ENV_DOTFILE,
   checkFilePath,
   checkBashCommand,
+  checkBashSegment,
+  checkEnvFileReference,
+  loadEnvRefAllowCommands,
+  matchesAllowEntry,
+  cleanToken,
   check,
   isAllowlisted,
+  _resetEnvRefCache,
 } = require("../guard-secrets");
 
 describe("guard-secrets", () => {
@@ -296,9 +307,12 @@ describe("guard-secrets", () => {
         !checkBashCommand('echo "the .env file handling"', "high").blocked,
       );
     });
-    it("allows grep .env src/", () => {
-      // grep is not in the cat family and path is not a flag to grep.
-      assert.ok(!checkBashCommand("grep -r .env src/", "high").blocked);
+    it("blocks grep .env src/ (generic-env-ref)", () => {
+      // grep reads file content — use the dedicated Grep tool instead.
+      // Caught by the generic .env reference guard.
+      const r = checkBashCommand("grep -r .env src/", "high");
+      assert.ok(r.blocked);
+      assert.equal(r.pattern.id, "generic-env-ref");
     });
     it("does not trigger rm-env on `remove .env` prose", () => {
       // `remove` must not match `\brm\b`
@@ -508,6 +522,334 @@ describe("guard-secrets", () => {
       for (const a of ALLOWLIST) {
         assert.ok(a instanceof RegExp);
       }
+    });
+  });
+
+  // ── docker-compose-config pattern ──
+
+  describe("checkBashCommand: docker-compose-config", () => {
+    it("blocks docker compose config", () => {
+      const r = checkBashCommand("docker compose config", "high");
+      assert.ok(r.blocked);
+      assert.equal(r.pattern.id, "docker-compose-config");
+    });
+    it("blocks docker-compose config", () => {
+      const r = checkBashCommand("docker-compose config", "high");
+      assert.ok(r.blocked);
+      assert.equal(r.pattern.id, "docker-compose-config");
+    });
+    it("blocks docker compose --env-file .env.local config", () => {
+      assert.ok(
+        checkBashCommand(
+          "docker compose --env-file .env.local config",
+          "high"
+        ).blocked
+      );
+    });
+    it("blocks docker compose -f docker-compose.prod.yml config", () => {
+      assert.ok(
+        checkBashCommand(
+          "docker compose -f docker-compose.prod.yml config",
+          "high"
+        ).blocked
+      );
+    });
+    it("allows docker compose up -d", () => {
+      assert.ok(
+        !checkBashCommand("docker compose up -d", "high").blocked
+      );
+    });
+    it("does not fire at critical level", () => {
+      assert.ok(
+        !checkBashCommand("docker compose config", "critical").blocked
+      );
+    });
+  });
+
+  // ── Generic .env* reference guard ──
+
+  describe("checkEnvFileReference", () => {
+    // Reset the config cache before each test so defaults are used
+    beforeEach(() => _resetEnvRefCache());
+
+    // ── Blocks (not on default allow list) ──
+
+    it("blocks docker compose --env-file .env.local up", () => {
+      const r = checkEnvFileReference("docker compose --env-file .env.local up");
+      assert.ok(r.blocked);
+      assert.equal(r.pattern.id, "generic-env-ref");
+    });
+    it("blocks dotenv -f .env.local run -- npm start", () => {
+      assert.ok(
+        checkEnvFileReference("dotenv -f .env.local run -- npm start").blocked
+      );
+    });
+    it("blocks sed 's/foo/bar/' .env", () => {
+      assert.ok(checkEnvFileReference("sed 's/foo/bar/' .env").blocked);
+    });
+    it("blocks diff .env .env.staging", () => {
+      assert.ok(checkEnvFileReference("diff .env .env.staging").blocked);
+    });
+    it("blocks unknown-tool --config .env.production", () => {
+      assert.ok(
+        checkEnvFileReference("unknown-tool --config .env.production").blocked
+      );
+    });
+    it("blocks envsubst < .env.local", () => {
+      assert.ok(checkEnvFileReference("envsubst < .env.local").blocked);
+    });
+    it("blocks --env-file=.env.local (equals form)", () => {
+      assert.ok(
+        checkEnvFileReference("some-tool --env-file=.env.local").blocked
+      );
+    });
+    it("blocks git show HEAD:.env", () => {
+      assert.ok(checkEnvFileReference("git show HEAD:.env").blocked);
+    });
+    it("blocks grep SECRET .env", () => {
+      assert.ok(checkEnvFileReference("grep SECRET .env").blocked);
+    });
+    it("blocks grep -r .env src/", () => {
+      assert.ok(checkEnvFileReference("grep -r .env src/").blocked);
+    });
+
+    // ── Allows (on default allow list) ──
+
+    it("allows ls -la .env", () => {
+      assert.ok(!checkEnvFileReference("ls -la .env").blocked);
+    });
+    it("allows find . -name .env", () => {
+      assert.ok(!checkEnvFileReference("find . -name .env").blocked);
+    });
+    it("allows echo 'check .env file'", () => {
+      assert.ok(!checkEnvFileReference("echo 'check .env file'").blocked);
+    });
+    it("allows git log --all -- .env", () => {
+      assert.ok(!checkEnvFileReference("git log --all -- .env").blocked);
+    });
+    it("allows stat .env.local", () => {
+      assert.ok(!checkEnvFileReference("stat .env.local").blocked);
+    });
+    it("allows sha256sum .env", () => {
+      assert.ok(!checkEnvFileReference("sha256sum .env").blocked);
+    });
+    it("allows mv .env .env.bak", () => {
+      assert.ok(!checkEnvFileReference("mv .env .env.bak").blocked);
+    });
+    it("allows wc -l .env", () => {
+      assert.ok(!checkEnvFileReference("wc -l .env").blocked);
+    });
+    it("allows gh issue create mentioning .env", () => {
+      assert.ok(
+        !checkEnvFileReference(
+          'gh issue create --title "fix .env handling"'
+        ).blocked
+      );
+    });
+
+    // ── Allows (ALLOWLIST — template files) ──
+
+    it("allows cat .env.example (template allowlist)", () => {
+      assert.ok(!checkEnvFileReference("cat .env.example").blocked);
+    });
+    it("allows docker compose --env-file .env.example config (template)", () => {
+      assert.ok(
+        !checkEnvFileReference(
+          "docker compose --env-file .env.example config"
+        ).blocked
+      );
+    });
+
+    // ── Fast-exit for commands without .env ──
+
+    it("returns not blocked for commands without .env", () => {
+      assert.ok(!checkEnvFileReference("cat README.md").blocked);
+    });
+    it("returns not blocked for null", () => {
+      assert.ok(!checkEnvFileReference(null).blocked);
+    });
+    it("returns not blocked for empty string", () => {
+      assert.ok(!checkEnvFileReference("").blocked);
+    });
+  });
+
+  // ── Generic env ref integration with checkBashCommand ──
+
+  describe("checkBashCommand: generic-env-ref integration", () => {
+    beforeEach(() => _resetEnvRefCache());
+
+    it("blocks sed .env via checkBashCommand at high level", () => {
+      const r = checkBashCommand("sed 's/x/y/' .env", "high");
+      assert.ok(r.blocked);
+      assert.equal(r.pattern.id, "generic-env-ref");
+    });
+    it("does not fire generic guard at critical level", () => {
+      // sed .env is not in BASH_PATTERNS, and generic guard only fires at high+
+      assert.ok(!checkBashCommand("sed 's/x/y/' .env", "critical").blocked);
+    });
+    it("allows git commit with .env in message (passthrough)", () => {
+      assert.ok(
+        !checkBashCommand(
+          'git commit -m "fix: handle .env leak"',
+          "high"
+        ).blocked
+      );
+    });
+    it("blocks git commit && sed .env (shell-chain)", () => {
+      const r = checkBashCommand(
+        'git commit -m "msg" && sed .env',
+        "high"
+      );
+      assert.ok(r.blocked);
+      assert.equal(r.pattern.id, "generic-env-ref");
+    });
+  });
+
+  // ── cleanToken ──
+
+  describe("cleanToken", () => {
+    it("strips surrounding quotes", () => {
+      assert.equal(cleanToken("'.env'"), ".env");
+      assert.equal(cleanToken('".env"'), ".env");
+      assert.equal(cleanToken("``.env``"), ".env");
+    });
+    it("strips --flag= prefix", () => {
+      assert.equal(cleanToken("--env-file=.env.local"), ".env.local");
+    });
+    it("strips redirect prefix", () => {
+      assert.equal(cleanToken("<.env"), ".env");
+      assert.equal(cleanToken("2>.env"), ".env");
+    });
+    it("passes through plain tokens", () => {
+      assert.equal(cleanToken(".env"), ".env");
+      assert.equal(cleanToken("/path/to/.env.local"), "/path/to/.env.local");
+    });
+  });
+
+  // ── matchesAllowEntry ──
+
+  describe("matchesAllowEntry", () => {
+    it("matches exact command", () => {
+      assert.ok(matchesAllowEntry("ls", "ls"));
+    });
+    it("matches command with args", () => {
+      assert.ok(matchesAllowEntry("ls -la .env", "ls"));
+    });
+    it("matches multi-word entry", () => {
+      assert.ok(matchesAllowEntry("git log --all -- .env", "git log"));
+    });
+    it("does not match partial word", () => {
+      assert.ok(!matchesAllowEntry("lsof .env", "ls"));
+    });
+    it("does not match different git subcommand", () => {
+      assert.ok(!matchesAllowEntry("git show HEAD:.env", "git log"));
+    });
+    it("handles leading whitespace", () => {
+      assert.ok(matchesAllowEntry("  ls -la .env", "ls"));
+    });
+  });
+
+  // ── Config file loading ──
+
+  describe("loadEnvRefAllowCommands: config file discovery", () => {
+    let tmpProject;
+    let tmpHome;
+    let savedProjectDir;
+    let savedHome;
+
+    beforeEach(() => {
+      _resetEnvRefCache();
+      savedProjectDir = process.env.CLAUDE_PROJECT_DIR;
+      savedHome = process.env.HOME;
+      tmpProject = fs.mkdtempSync(path.join(os.tmpdir(), "guard-proj-"));
+      tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "guard-home-"));
+    });
+
+    afterEach(() => {
+      if (savedProjectDir === undefined) delete process.env.CLAUDE_PROJECT_DIR;
+      else process.env.CLAUDE_PROJECT_DIR = savedProjectDir;
+      if (savedHome === undefined) delete process.env.HOME;
+      else process.env.HOME = savedHome;
+      fs.rmSync(tmpProject, { recursive: true, force: true });
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    });
+
+    function writeConfig(baseDir, commands) {
+      const dir = path.join(baseDir, ".claude");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "guard-secrets.config.json"),
+        JSON.stringify({ envRefAllowCommands: commands })
+      );
+    }
+
+    it("loads project-level config when CLAUDE_PROJECT_DIR is set", () => {
+      writeConfig(tmpProject, ["grep", "docker compose up"]);
+      process.env.CLAUDE_PROJECT_DIR = tmpProject;
+      const result = loadEnvRefAllowCommands();
+      assert.deepEqual(result, ["grep", "docker compose up"]);
+    });
+
+    it("loads user-level config when project-level absent", () => {
+      writeConfig(tmpHome, ["awk"]);
+      // Point project dir to a location with no config
+      process.env.CLAUDE_PROJECT_DIR = tmpProject;
+      // Mock homedir by writing to tmpHome — we need to override os.homedir
+      // Instead, write project-level as absent and set HOME
+      process.env.HOME = tmpHome;
+      _resetEnvRefCache();
+      const result = loadEnvRefAllowCommands();
+      assert.deepEqual(result, ["awk"]);
+    });
+
+    it("falls back to defaults when no config files exist", () => {
+      process.env.CLAUDE_PROJECT_DIR = tmpProject;
+      process.env.HOME = tmpProject; // no .claude/ dir here either
+      const result = loadEnvRefAllowCommands();
+      assert.deepEqual(result, DEFAULT_ENV_REF_ALLOW_COMMANDS);
+    });
+
+    it("project-level takes priority over user-level", () => {
+      writeConfig(tmpProject, ["proj-tool"]);
+      writeConfig(tmpHome, ["home-tool"]);
+      process.env.CLAUDE_PROJECT_DIR = tmpProject;
+      process.env.HOME = tmpHome;
+      const result = loadEnvRefAllowCommands();
+      assert.deepEqual(result, ["proj-tool"]);
+    });
+
+    it("custom allow entry enables previously-blocked command", () => {
+      writeConfig(tmpProject, ["grep", "sed"]);
+      process.env.CLAUDE_PROJECT_DIR = tmpProject;
+      // grep .env is blocked with defaults but should be allowed with custom config
+      assert.ok(!checkEnvFileReference("grep SECRET .env").blocked);
+      assert.ok(!checkEnvFileReference("sed 's/x/y/' .env").blocked);
+    });
+
+    it("skips invalid JSON config gracefully", () => {
+      const dir = path.join(tmpProject, ".claude");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "guard-secrets.config.json"),
+        "{ invalid json }"
+      );
+      process.env.CLAUDE_PROJECT_DIR = tmpProject;
+      process.env.HOME = tmpHome; // no user-level config
+      const result = loadEnvRefAllowCommands();
+      assert.deepEqual(result, DEFAULT_ENV_REF_ALLOW_COMMANDS);
+    });
+
+    it("skips config with missing envRefAllowCommands key", () => {
+      const dir = path.join(tmpProject, ".claude");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "guard-secrets.config.json"),
+        JSON.stringify({ someOtherKey: true })
+      );
+      process.env.CLAUDE_PROJECT_DIR = tmpProject;
+      process.env.HOME = tmpHome;
+      const result = loadEnvRefAllowCommands();
+      assert.deepEqual(result, DEFAULT_ENV_REF_ALLOW_COMMANDS);
     });
   });
 });

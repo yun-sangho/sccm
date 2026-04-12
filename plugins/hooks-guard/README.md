@@ -87,7 +87,58 @@ Blocks access to sensitive files (keys, credentials, environment variables).
 | Level | Blocked Bash commands |
 |-------|------------------------|
 | `critical` | `cat .env`, `cat id_rsa`, `cat .aws/credentials` |
-| `high` | + `printenv`, `echo $SECRET_*`, `source .env`, `curl -d @.env`, `scp .env`, `cp .env`, `rm .env`, `rm id_rsa` |
+| `high` | + `printenv`, `echo $SECRET_*`, `source .env`, `curl -d @.env`, `scp .env`, `cp .env`, `rm .env`, `rm id_rsa`, `docker compose config` |
+
+**Generic `.env*` reference guard** (high level and above):
+
+Any Bash command referencing a `.env*` file is blocked by default, unless
+the command verb is on the **allow list**. This catches indirect leaks
+from tools like `docker compose --env-file .env.local config`, `dotenv`,
+`envsubst`, `sed`, and any future tool that reads `.env` files.
+
+#### Configuring the allow list
+
+Create `guard-secrets.config.json` at one of these locations (first found wins, full replacement):
+
+| Priority | Path | Use case |
+|----------|------|----------|
+| 1 (highest) | `{project}/.claude/guard-secrets.config.json` | Team/project policy (commit to repo) |
+| 2 | `~/.claude/guard-secrets.config.json` | Personal defaults (all projects) |
+| 3 (fallback) | Built-in defaults | Zero-config safe defaults |
+
+Config file discovery uses `CLAUDE_PROJECT_DIR` and `HOME`, not `CLAUDE_PLUGIN_ROOT` —
+the config location is fully decoupled from where the plugin is installed.
+
+Format:
+
+```json
+{
+  "envRefAllowCommands": [
+    "ls", "stat", "find", "echo",
+    "git log", "git status", "git add",
+    "docker compose up"
+  ]
+}
+```
+
+Each entry is a **command prefix**. `"git log"` allows `git log --all -- .env`
+but NOT `git show .env`. `"docker compose up"` allows `docker compose up -d`
+but NOT `docker compose config`.
+
+**Default allow list** (safe commands that never read file content):
+
+`ls`, `stat`, `file`, `test`, `touch`, `chmod`, `chown`, `chgrp`, `du`,
+`find`, `fd`, `locate`, `which`, `whereis`,
+`sha256sum`, `sha1sum`, `md5sum`, `sha512sum`, `cksum`, `b2sum`,
+`mv`, `rename`, `basename`, `dirname`, `realpath`, `readlink`,
+`echo`, `printf`, `wc`, `gh`,
+`git log`, `git status`, `git branch`, `git remote`, `git tag`,
+`git add`, `git rm`, `git checkout`, `git switch`,
+`git fetch`, `git pull`, `git push`, `git clone`, `git init`,
+`git merge`, `git rebase`, `git cherry-pick`
+
+**Not on default allow list** (blocked): `cat`, `source`, `grep`, `docker`,
+`sed`, `awk`, `diff`, `git show`, `git diff`, any unknown command.
 
 **Allowlist** — these files are always accessible:
 
