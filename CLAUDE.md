@@ -110,3 +110,4 @@ commit. Fix the underlying file, re-run, and only commit once it passes.
 This repo uses **pnpm**. The `hooks-pnpm` plugin enforces this — `npm`
 commands at the repo root are blocked by a PreToolUse hook. Always use
 `pnpm`.
+
