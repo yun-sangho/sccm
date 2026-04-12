@@ -222,33 +222,42 @@ claude -p "Execute: cat /path/to/.env.example" \
 
 ### Testing config file (exact-match user exceptions)
 
-```bash
-# Step 1: Create project-level config
-mkdir -p .claude
-echo '{"envRefAllowCommands":["grep SECRET /path/to/.env"]}' \
-  > .claude/guard-secrets.config.json
+**Important:** Do NOT create config files inside the git repo — the child
+`claude -p` process may detect untracked files and commit them. Instead,
+create a temp directory, place the config there, and run the child process
+with `cd` so that its cwd (and therefore `CLAUDE_PROJECT_DIR`) points to
+the temp directory.
 
-# Step 2: Test — this exact command should now pass
-claude -p "Execute: grep SECRET /path/to/.env" \
-  --plugin-dir plugins/hooks-guard \
-  --system-prompt "$SYS" --allowedTools "Bash" 2>&1
+```bash
+# Step 1: Create config in a temp directory (NOT the repo)
+TMPPROJ=$(mktemp -d)
+mkdir -p "$TMPPROJ/.claude"
+echo '{"envRefAllowCommands":["grep SECRET /path/to/.env"]}' \
+  > "$TMPPROJ/.claude/guard-secrets.config.json"
+
+# Step 2: Run child process from temp dir — this exact command should pass
+(cd "$TMPPROJ" && claude -p "Execute: grep SECRET /path/to/.env" \
+  --plugin-dir /absolute/path/to/plugins/hooks-guard \
+  --system-prompt "$SYS" --allowedTools "Bash" 2>&1)
 
 # Step 3: Different args — still blocked (exact match)
-claude -p "Execute: grep DB_PASSWORD /path/to/.env" \
-  --plugin-dir plugins/hooks-guard \
-  --system-prompt "$SYS" --allowedTools "Bash" 2>&1
+(cd "$TMPPROJ" && claude -p "Execute: grep DB_PASSWORD /path/to/.env" \
+  --plugin-dir /absolute/path/to/plugins/hooks-guard \
+  --system-prompt "$SYS" --allowedTools "Bash" 2>&1)
 
 # Cleanup
-rm .claude/guard-secrets.config.json
+rm -rf "$TMPPROJ"
 ```
 
 ### Caveats
 
 - Each `claude -p` call spawns a full Claude Code process (slow, ~10s each).
   Use direct invocation for rapid iteration, child process for final validation.
-- The child Claude may commit/push changes if it has git access. Use
-  `--allowedTools "Bash"` to limit available tools.
-- If the child Claude creates unwanted commits, revert with `git revert`.
+- The child Claude can run any shell command including `git commit` via
+  Bash. `--allowedTools "Bash"` restricts tool types, not shell commands.
+  To prevent unwanted commits, run the child from a non-git directory
+  (e.g., `cd /tmp/...` as shown above).
+- If the child Claude does create unwanted commits, revert with `git revert`.
 
 ## Re-installing after code changes
 
