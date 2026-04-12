@@ -114,11 +114,4 @@ commands at the repo root are blocked by a PreToolUse hook. Always use
 ## Plugin integration testing
 
 See [docs/plugin-integration-testing.md](docs/plugin-integration-testing.md)
-for the full guide covering:
-
-- **Quick setup** — marketplace install or `--plugin-dir` (no install needed)
-- **Direct invocation** — pipe JSON into hook scripts for fast iteration
-- **Config file testing** — project/user scope, exact-match, CRUD flow
-- **Child `claude -p` process** — realistic end-to-end with `--plugin-dir`
-- **Parent hook interference** — how to avoid and work around it
-- **`/reload-plugins`** — hot-reload after code changes
+for how to run unit tests and integration tests (`claude -p --plugin-dir`).
