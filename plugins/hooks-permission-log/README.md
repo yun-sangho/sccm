@@ -2,29 +2,36 @@
 
 A Claude Code plugin that logs every Bash permission-flow event
 (`PermissionRequest`, `PostToolUse`, `PostToolUseFailure`,
-`PermissionDenied`) to a local JSONL file, then lets you review the
-history and get concrete suggestions for what to add to your
-`sccm-sandbox` preset so Claude Code stops asking the same questions
-over and over.
+`PermissionDenied`) to a local JSONL file. The logs serve as a
+general-purpose data layer that any plugin can consume to refine its
+permission-related settings. The bundled review commands currently
+target `sccm-sandbox` presets and `hooks-guard` rules, but the
+underlying JSONL data is available for any consumer.
 
 ## Why
 
-`sccm-sandbox` ships a static preset (`plugins/sccm-sandbox/presets/base.json`)
-of pre-allowed tools. When a command you run regularly is _not_ in
-that preset, Claude Code prompts you every single time. Deciding which
-commands to add is guesswork unless you have data on what actually hit
-the prompt. This plugin is that data layer.
+Claude Code's permission system — presets, allow-lists, guard rules —
+is configured statically. Without observability into what actually
+gets prompted, approved, or denied, refining those settings is
+guesswork. This plugin provides that observability: a structured log
+of every Bash permission event, so any plugin that manages permissions
+(e.g. `sccm-sandbox` presets, `hooks-guard` block rules, or a future
+plugin of your own) can be improved with real usage data instead of
+assumptions.
 
 ## What it does
 
-1. **Logs** — four thin hooks append one JSONL line per event to
-   `.claude/permission-logs/YYYY-MM-DD.jsonl`. The hooks never block
-   execution; any I/O or parse failure is silently swallowed.
-2. **Reviews** — `/permission-log:review` groups events by
-   `tool_use_id`, classifies each tool call's outcome, aggregates by
-   `cmd_key` (e.g. `pnpm run`, `git commit`, `docker compose`), and
-   prints a markdown report with a **diff for `base.json`** you can
-   copy-paste.
+1. **Logs** (general-purpose) — four thin hooks append one JSONL line
+   per event to `.claude/permission-logs/YYYY-MM-DD.jsonl`. The hooks
+   never block execution; any I/O or parse failure is silently
+   swallowed. The log files are plain JSONL — any script or plugin can
+   read them.
+2. **Reviews** (current consumers: `sccm-sandbox`, `hooks-guard`) —
+   `/permission-log:review` groups events by `tool_use_id`, classifies
+   each tool call's outcome, aggregates by `cmd_key` (e.g. `pnpm run`,
+   `git commit`, `docker compose`), and prints a markdown report with
+   a suggested diff for `sccm-sandbox`'s `base.json` and candidate
+   block rules for `hooks-guard`.
 
 ## Outcome truth table
 
