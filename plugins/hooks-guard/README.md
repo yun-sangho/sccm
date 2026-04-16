@@ -10,6 +10,7 @@ Intercepts tools the Claude Code agent runs (Bash, Read, Edit, Write, …) and b
 |------|-------|--------------|-------------|
 | `guard-bash` | PreToolUse | Bash | Block dangerous shell commands |
 | `guard-secrets` | PreToolUse | Read, Edit, Write, Bash | Block sensitive file access |
+| `session-start-check` | SessionStart | — | Warn at session boot if sandbox is missing/disabled or `ignore-scripts` is unset |
 
 ## Install
 
@@ -172,6 +173,34 @@ config file, so the guard hook itself won't block the operation.
 
 ---
 
+### session-start-check
+
+Runs once at session boot (`SessionStart` event with `source === "startup"`)
+and surfaces non-blocking warnings about the project's safety posture.
+Skipped on `resume` / `clear` / `compact` so `/compact` and `/resume` don't
+re-warn.
+
+| Check | Triggers a warning when … |
+|-------|---------------------------|
+| Sandbox enabled | `.claude/settings.local.json` is missing, has malformed JSON, has `sandbox.enabled: false`, or has no `sandbox.enabled` |
+| `ignore-scripts` | Neither `~/.npmrc` nor `<project>/.npmrc` contains `ignore-scripts=true` (lifecycle scripts run on install — supply-chain risk) |
+| Worktree (note, not warning) | `.claude/worktrees/` exists in the repo but cwd is outside it |
+
+Output uses Claude Code's documented [SessionStart hook output contract](https://code.claude.com/docs/en/hooks):
+warnings go to `systemMessage` (visible to the user), and the same
+information is mirrored into `hookSpecificOutput.additionalContext` (so the
+agent can factor the posture into its decisions). The hook always exits 0
+and never blocks session start.
+
+**Opt out**: set `SCCM_HOOKS_GUARD_QUIET=1` in your environment to disable
+the warning (useful for CI / scripted sessions).
+
+**On-demand re-check**: `/hooks-guard:safety-check` runs the same checks
+mid-session and prints a human-readable report. Useful after applying a
+sandbox preset or toggling settings.
+
+---
+
 ## Network policy
 
 `hooks-common` does not impose a blanket block on outbound network calls. The intent is:
@@ -231,6 +260,7 @@ node --test
 |---------|-------------|
 | `/hooks-guard:guard-allow` | Add or remove exact-match command exceptions for the `.env` reference guard |
 | `/hooks-guard:guard-config` | View the current guard configuration (built-in defaults + user exceptions) |
+| `/hooks-guard:safety-check` | Report the current safety posture (sandbox, npm `ignore-scripts`, worktree) |
 | `/hooks-guard:report-issue` | File a bug report or feature request at GitHub |
 
 ### Reporting bugs / suggesting features
@@ -256,16 +286,20 @@ plugins/hooks-guard/
 ├── hooks/
 │   └── hooks.json           # Hook registration
 ├── scripts/
-│   ├── utils.js             # Shared utilities
-│   ├── guard-bash.js        # Bash command guard
-│   ├── guard-secrets.js     # Sensitive file guard
-│   └── __tests__/           # Tests
+│   ├── utils.js                  # Shared utilities
+│   ├── guard-bash.js             # Bash command guard
+│   ├── guard-secrets.js          # Sensitive file guard
+│   ├── safety-check.js           # Project safety-posture checker (shared)
+│   ├── session-start-check.js    # SessionStart hook entry
+│   └── __tests__/                # Tests
 │       ├── guard-bash.test.js
 │       ├── guard-secrets.test.js
+│       ├── safety-check.test.js
 │       └── utils.test.js
 ├── commands/
 │   ├── guard-allow.md       # /guard-allow slash command
 │   ├── guard-config.md      # /guard-config slash command
+│   ├── safety-check.md      # /safety-check slash command
 │   └── report-issue.md      # /report-issue slash command
 ├── package.json
 └── README.md

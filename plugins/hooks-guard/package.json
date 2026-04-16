@@ -1,6 +1,6 @@
 {
   "name": "hooks-guard",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Security guard hooks - blocks dangerous Bash commands and sensitive file access",
   "author": "Sangho",
   "license": "UNLICENSED",
