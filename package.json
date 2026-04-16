@@ -9,13 +9,16 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test 'plugins/*/scripts/__tests__/*.test.js' 'plugins/*/scripts/__tests__/*.test.mjs'",
+    "test": "node --test 'packages/hooks-shared/__tests__/*.test.js' 'plugins/*/scripts/__tests__/*.test.js' 'plugins/*/scripts/__tests__/*.test.mjs'",
+    "test:shared": "node --test 'packages/hooks-shared/__tests__/*.test.js'",
     "test:hooks-guard": "node --test 'plugins/hooks-guard/scripts/__tests__/*.test.js'",
     "test:hooks-pnpm": "node --test 'plugins/hooks-pnpm/scripts/__tests__/*.test.js'",
     "test:hooks-worktree": "node --test 'plugins/hooks-worktree/scripts/__tests__/*.test.js'",
     "test:sccm-sandbox": "node --test 'plugins/sccm-sandbox/scripts/__tests__/*.test.mjs'",
     "test:hooks-permission-log": "node --test 'plugins/hooks-permission-log/scripts/__tests__/*.test.js'",
     "verify-versions": "node scripts/verify-versions.mjs",
+    "verify-shared": "node scripts/verify-shared.mjs",
+    "sync-shared": "node scripts/sync-shared.mjs",
     "bump": "node scripts/bump.mjs"
   }
 }

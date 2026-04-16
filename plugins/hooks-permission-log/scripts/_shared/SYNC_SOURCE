@@ -1,0 +1,7 @@
+# This directory is synced from packages/hooks-shared/src/
+# Do NOT edit these files directly. Edit the canonical source and run:
+#   pnpm run sync-shared
+#
+# `pnpm run verify-shared` fails if this copy drifts from the canonical source.
+source=packages/hooks-shared/src
+files=exit.js,index.js,logging.js,shell-chain.js,stdin.js

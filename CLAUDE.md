@@ -99,11 +99,35 @@ commit. Fix the underlying file, re-run, and only commit once it passes.
 
 | Command | What it does |
 |---|---|
-| `pnpm test` | Run every plugin's tests |
+| `pnpm test` | Run every plugin's tests + the shared-package tests |
+| `pnpm run test:shared` | Run only `packages/hooks-shared/` tests |
 | `pnpm run test:<plugin>` | Run one plugin's tests |
 | `pnpm run verify-versions` | Assert all three version files agree per plugin |
+| `pnpm run verify-shared` | Assert each plugin's `_shared/` matches `packages/hooks-shared/src/` |
+| `pnpm run sync-shared` | Copy `packages/hooks-shared/src/` into each plugin's `scripts/_shared/` |
 | `pnpm run bump <plugin> <level>` | Bump a plugin's version in all three files |
 | `claude plugin validate plugins/<name>` | Validate one plugin's manifest, hooks, and command frontmatter |
+
+## Shared hook utilities
+
+Utilities used by more than one hook plugin (`readStdin`, `appendJsonl`,
+`block`/`allow`, `splitShellChain`) live in **`packages/hooks-shared/src/`**
+as the single canonical source. Because Claude Code plugins are distributed
+as self-contained directories and the marketplace installer does not run
+`npm install`, the shared files are **copied** into each plugin's
+`scripts/_shared/` directory by `pnpm run sync-shared`.
+
+Rules:
+
+- **Never edit** `plugins/*/scripts/_shared/*`. Those files are regenerated
+  on every `pnpm run sync-shared` and `pnpm run verify-shared` fails the
+  build if they drift from the canonical source.
+- When you change a file under `packages/hooks-shared/src/`, immediately
+  run `pnpm run sync-shared` to propagate the change, then `pnpm test` to
+  confirm both the shared tests and every consuming plugin still pass.
+- Bump the **consuming plugins** (not `hooks-shared`) when a shared change
+  lands — the version bump rule is about what the marketplace user
+  installs, and they install plugins, not this package.
 
 ## Package manager
 

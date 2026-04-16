@@ -1,9 +1,19 @@
 #!/usr/bin/env node
 /**
- * Shared utilities for Claude Code hooks.
+ * hooks-pnpm — plugin-local utilities.
+ *
+ * Cross-plugin helpers (readStdin, appendJsonl, block/allow) live in
+ * scripts/_shared/ and are synced from packages/hooks-shared at dev
+ * time. This file re-exports them so existing callers keep working
+ * with require("./utils"), and owns only the log() wrapper that
+ * stamps a ts/hook prefix onto entries and the plugin-specific
+ * LOG_DIR.
  */
-const fs = require("fs");
 const path = require("path");
+
+const { readStdin } = require("./_shared/stdin");
+const { appendJsonl } = require("./_shared/logging");
+const { block, allow } = require("./_shared/exit");
 
 const LOG_DIR = path.join(
   process.env.CLAUDE_PROJECT_DIR || process.cwd(),
@@ -12,32 +22,7 @@ const LOG_DIR = path.join(
 );
 
 function log(hook, data) {
-  try {
-    if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
-    const file = path.join(
-      LOG_DIR,
-      `${new Date().toISOString().slice(0, 10)}.jsonl`
-    );
-    fs.appendFileSync(
-      file,
-      JSON.stringify({ ts: new Date().toISOString(), hook, ...data }) + "\n"
-    );
-  } catch {}
-}
-
-async function readStdin() {
-  let input = "";
-  for await (const chunk of process.stdin) input += chunk;
-  return JSON.parse(input);
-}
-
-function block(id, reason) {
-  console.error(`BLOCKED: [${id}] ${reason}`);
-  process.exit(2);
-}
-
-function allow() {
-  process.exit(0);
+  appendJsonl(LOG_DIR, { ts: new Date().toISOString(), hook, ...data });
 }
 
 module.exports = { LOG_DIR, log, readStdin, block, allow };

@@ -2,12 +2,24 @@
 /**
  * I/O helpers for hooks-permission-log.
  *
- * Kept dependency-free and self-contained so the plugin can run from
- * the marketplace install location without reaching into sibling
- * plugins at runtime.
+ * Kept self-contained so the plugin can run from the marketplace
+ * install location without reaching into sibling plugins at runtime.
+ * Cross-plugin primitives (readStdin, the raw appendJsonl writer)
+ * come from `../_shared/*`, which is synced from
+ * packages/hooks-shared at dev time — still self-contained from the
+ * runtime's perspective, but no source duplication across plugins.
+ *
+ * Plugin-specific behavior that stays here:
+ *   - SCHEMA_VERSION + v1 archival (first-v2-write migration)
+ *   - redact() patterns tuned for the cmd/reason fields we log
+ *   - truncate() policy (MAX_CMD_LEN)
+ *   - the appendJsonl wrapper that triggers archival before delegating
  */
 const fs = require("fs");
 const path = require("path");
+
+const { readStdin } = require("../_shared/stdin");
+const { appendJsonl: appendJsonlCore } = require("../_shared/logging");
 
 // Schema version of the JSONL events this plugin writes. Bumped from
 // the implicit v1 (un-versioned, fields: ts/event/tool/cmd/cmd_key/...)
@@ -61,13 +73,6 @@ function truncate(s, n = MAX_CMD_LEN) {
   return s.slice(0, n) + "…";
 }
 
-async function readStdin() {
-  let input = "";
-  for await (const chunk of process.stdin) input += chunk;
-  if (!input.trim()) return {};
-  return JSON.parse(input);
-}
-
 // Move un-versioned .jsonl files sitting in LOG_DIR into LOG_DIR/v1/ so
 // the first v2 write of the process starts a clean v2-only file. A file
 // is considered v1 when its first line does NOT contain the v2 schema
@@ -118,15 +123,14 @@ function _resetArchiveFlag() {
   _v1Archived = false;
 }
 
+// Public appendJsonl for this plugin: triggers v1 archival on the first
+// v2 entry, then delegates the raw mkdir+date-file+append write to the
+// shared primitive. The shared writer already swallows its IO errors;
+// the outer try/catch is belt-and-suspenders against the archive check.
 function appendJsonl(entry) {
   try {
     if (entry && entry.schema_version === SCHEMA_VERSION) archiveV1Once();
-    if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
-    const file = path.join(
-      LOG_DIR,
-      `${new Date().toISOString().slice(0, 10)}.jsonl`
-    );
-    fs.appendFileSync(file, JSON.stringify(entry) + "\n");
+    appendJsonlCore(LOG_DIR, entry);
   } catch {
     // Never disturb the hook chain — swallow IO failures.
   }
