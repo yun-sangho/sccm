@@ -9,10 +9,19 @@
  *   critical — SSH keys, AWS creds, .env files only
  *   high     — + secrets files, env dumps, exfiltration attempts
  *   strict   — + database configs, any config that might contain secrets
+ *
+ * Resolved in this order (first wins):
+ *   1. env var SCCM_GUARD_LEVEL
+ *   2. guard-secrets.config.json -> "safetyLevel"
+ *   3. fallback "high"
+ *
+ * Path canonicalization:
+ *   file_path args and path-like Bash tokens are resolved with
+ *   fs.realpathSync before regex matching, so a symlink whose name does
+ *   not contain a sensitive marker (e.g. /tmp/foo -> ~/.ssh/id_rsa) is
+ *   still blocked. Resolution failures (missing file, ELOOP, EACCES)
+ *   silently fall back to the raw path — a guard hook never throws.
  */
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
 const {
   LEVELS,
   log,
@@ -20,9 +29,14 @@ const {
   block,
   allow,
   splitShellChain,
+  loadGuardConfig,
+  resolveSafetyLevel,
+  resolvePath,
+  _resetGuardConfigCache,
+  CONFIG_FILENAME,
 } = require("./utils");
 
-const SAFETY_LEVEL = "high";
+const SAFETY_LEVEL = resolveSafetyLevel("high");
 
 // Files explicitly safe to access (templates, examples)
 const ALLOWLIST = [
@@ -263,63 +277,19 @@ const DEFAULT_ENV_REF_ALLOW_COMMANDS = [
 
 // ── User-configurable exact-match exceptions ──
 //
-// Loaded from guard-secrets.config.json at project-level or user-level.
-// These are ADDITIVE to the built-in defaults above, and use EXACT
-// matching (cmd.trim() === entry) for maximum tightness.
-//
-// Discovery order (first found wins):
-//   1. {CLAUDE_PROJECT_DIR}/.claude/guard-secrets.config.json  (project)
-//   2. ~/.claude/guard-secrets.config.json                     (user)
-//   3. Empty array (no user exceptions)
-
-const CONFIG_FILENAME = "guard-secrets.config.json";
-
-// Cache: loaded once per process (hooks are short-lived, one invocation = one process)
-let _userEnvRefAllowCommands = null;
+// Read from guard-secrets.config.json via the shared loadGuardConfig()
+// loader in utils.js. See CONFIG_FILENAME comment there for discovery
+// order. These entries are ADDITIVE to DEFAULT_ENV_REF_ALLOW_COMMANDS
+// and use EXACT matching (cmd.trim() === entry) for maximum tightness.
 
 function loadUserEnvRefAllowCommands() {
-  if (_userEnvRefAllowCommands !== null) return _userEnvRefAllowCommands;
-
-  // Build candidate paths — project-level first, then user-level.
-  // Uses CLAUDE_PROJECT_DIR (set by Claude Code runtime) with cwd fallback,
-  // matching the same pattern as utils.js LOG_DIR.
-  // Does NOT use CLAUDE_PLUGIN_ROOT — config is decoupled from plugin install location.
-  const candidates = [
-    path.join(
-      process.env.CLAUDE_PROJECT_DIR || process.cwd(),
-      ".claude",
-      CONFIG_FILENAME
-    ),
-  ];
-  try {
-    const home = os.homedir();
-    if (home) {
-      candidates.push(path.join(home, ".claude", CONFIG_FILENAME));
-    }
-  } catch {
-    // os.homedir() can throw on misconfigured systems — skip user-level
-  }
-
-  for (const configPath of candidates) {
-    try {
-      const raw = fs.readFileSync(configPath, "utf8");
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed.envRefAllowCommands)) {
-        _userEnvRefAllowCommands = parsed.envRefAllowCommands;
-        return _userEnvRefAllowCommands;
-      }
-    } catch {
-      // File not found or invalid JSON — try next candidate
-    }
-  }
-
-  _userEnvRefAllowCommands = []; // no user exceptions
-  return _userEnvRefAllowCommands;
+  const cfg = loadGuardConfig();
+  return Array.isArray(cfg.envRefAllowCommands) ? cfg.envRefAllowCommands : [];
 }
 
-// Exposed for testing — resets the cached allow list
+// Exposed for testing — resets the shared guard-config cache.
 function _resetEnvRefCache() {
-  _userEnvRefAllowCommands = null;
+  _resetGuardConfigCache();
 }
 
 // Check whether cmd starts with an allowed command prefix.
@@ -336,6 +306,10 @@ function matchesAllowEntry(cmd, entry) {
 // Any command that references a .env dotfile is blocked unless the command
 // verb is on the user-configurable allow list. This catches leaks from
 // docker compose --env-file, dotenv, envsubst, sed, and any future tool.
+//
+// Tokens that look like paths are also checked against their realpath
+// resolution, so a symlink whose name does not contain .env (e.g.
+// `cat /tmp/foo` where /tmp/foo -> .env) is still caught.
 
 const ENV_DOTFILE = /(?:^|[/\\:])\.env(?:\.[^/\\]*)?$/i;
 
@@ -346,14 +320,34 @@ function cleanToken(token) {
     .replace(/^[0-9]*[<>]+/, "");                  // strip redirects
 }
 
+// Filter: only tokens that *could* be paths go through realpathSync. This
+// keeps the Bash hook fast — a typical command has a few flags + one or two
+// path args, and we skip the flags / env-assignments / empty tokens.
+function tokenLooksPathy(cleaned) {
+  if (!cleaned) return false;
+  if (cleaned.startsWith("-")) return false;           // flag
+  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(cleaned)) return false; // KEY=VAL
+  return true;
+}
+
 function checkEnvFileReference(cmd) {
-  if (!cmd || !/\.env/i.test(cmd)) return { blocked: false, pattern: null };
+  if (!cmd) return { blocked: false, pattern: null };
 
   const tokens = cmd.match(/[^\s]+/g) || [];
   for (const token of tokens) {
     const cleaned = cleanToken(token);
-    if (!ENV_DOTFILE.test(cleaned)) continue;
-    if (ALLOWLIST.some((p) => p.test(cleaned))) continue;
+    if (!tokenLooksPathy(cleaned)) continue;
+
+    // Build the list of path candidates to test against ENV_DOTFILE:
+    // the raw cleaned token, plus its realpath resolution if it is a
+    // symlink (or otherwise differs from a plain path.resolve). Resolve
+    // is best-effort — missing files fall through to the raw check.
+    const { resolved, viaSymlink } = resolvePath(cleaned);
+    const candidates = viaSymlink ? [cleaned, resolved] : [cleaned];
+
+    const hit = candidates.find((c) => ENV_DOTFILE.test(c));
+    if (!hit) continue;
+    if (ALLOWLIST.some((p) => p.test(hit))) continue;
 
     // Layer 1: Built-in safe commands — prefix matching, always active.
     // "ls" allows "ls -la .env", "git log" allows "git log -- .env".
@@ -370,7 +364,7 @@ function checkEnvFileReference(cmd) {
         level: "high",
         id: "generic-env-ref",
         regex: ENV_DOTFILE,
-        reason: `Command references ${cleaned} — may leak secrets from .env file`,
+        reason: `Command references ${hit} — may leak secrets from .env file`,
       },
     };
   }
@@ -381,12 +375,27 @@ function isAllowlisted(filePath) {
   return filePath && ALLOWLIST.some((p) => p.test(filePath));
 }
 
+// Check a file path against SENSITIVE_FILES at the active threshold.
+// Both the raw path AND its realpath resolution are tested, so a symlink
+// from an innocent-looking name (or an .env.example symlinked at .ssh/id_rsa)
+// is caught by the resolved side. Allowlist must pass on *each* candidate
+// that would trigger a block — an allowlisted raw name does not save a
+// resolved sensitive target.
 function checkFilePath(filePath, safetyLevel = SAFETY_LEVEL) {
-  if (!filePath || isAllowlisted(filePath))
-    return { blocked: false, pattern: null };
+  if (!filePath) return { blocked: false, pattern: null };
+
+  const { resolved, viaSymlink } = resolvePath(filePath);
   const threshold = LEVELS[safetyLevel] || 2;
+
+  const rawAllow = isAllowlisted(filePath);
+  const resolvedAllow = viaSymlink ? isAllowlisted(resolved) : rawAllow;
+
   for (const p of SENSITIVE_FILES) {
-    if (LEVELS[p.level] <= threshold && p.regex.test(filePath)) {
+    if (LEVELS[p.level] > threshold) continue;
+    if (p.regex.test(filePath) && !rawAllow) {
+      return { blocked: true, pattern: p };
+    }
+    if (viaSymlink && p.regex.test(resolved) && !resolvedAllow) {
       return { blocked: true, pattern: p };
     }
   }
@@ -495,6 +504,7 @@ if (require.main === module) {
     loadUserEnvRefAllowCommands,
     matchesAllowEntry,
     cleanToken,
+    tokenLooksPathy,
     isAllowlisted,
     _resetEnvRefCache,
   };

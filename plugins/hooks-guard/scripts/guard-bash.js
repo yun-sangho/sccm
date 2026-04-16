@@ -22,9 +22,12 @@ const {
   block,
   allow,
   splitShellChain,
+  resolveSafetyLevel,
 } = require("./utils");
 
-const SAFETY_LEVEL = "high";
+// Resolved in priority order: SCCM_GUARD_LEVEL env → guard-secrets.config.json
+// "safetyLevel" → fallback "high". See utils.resolveSafetyLevel for details.
+const SAFETY_LEVEL = resolveSafetyLevel("high");
 
 const PATTERNS = [
   // ── CRITICAL — Catastrophic, unrecoverable ──

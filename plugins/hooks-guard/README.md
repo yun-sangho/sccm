@@ -211,12 +211,47 @@ Blocked commands are appended to `{CLAUDE_PROJECT_DIR}/.claude/hooks-logs/` as J
 
 ## Changing the safety level
 
-Edit the `SAFETY_LEVEL` constant at the top of each hook file:
+The safety level is resolved at hook start-up in this order (first wins):
 
-```js
-// guard-bash.js, guard-secrets.js
-const SAFETY_LEVEL = "high";  // "critical" | "high" | "strict"
+1. `SCCM_GUARD_LEVEL` environment variable (`critical` | `high` | `strict`;
+   invalid values are silently ignored)
+2. `guard-secrets.config.json` → `"safetyLevel"` key (project or user-level —
+   same discovery order as `envRefAllowCommands`)
+3. Built-in fallback: `"high"`
+
+Examples:
+
+```bash
+# One-off in the current shell (applies to every hook invocation)
+export SCCM_GUARD_LEVEL=strict
+
+# Persistent project default — commit next to envRefAllowCommands
+# {project}/.claude/guard-secrets.config.json
+{
+  "safetyLevel": "strict",
+  "envRefAllowCommands": [ ... ]
+}
 ```
+
+Editing the `SAFETY_LEVEL` constant in `guard-bash.js` /
+`guard-secrets.js` is no longer required.
+
+## Symlink / path canonicalization
+
+File paths passed to `Read` / `Edit` / `Write`, and path-like tokens inside
+`Bash` commands, are canonicalized with `fs.realpathSync` before being
+matched against the sensitive-file patterns. That closes the loophole where
+an innocent-looking name is actually a symlink to a secret:
+
+- `Read(/tmp/notes.txt)` where `/tmp/notes.txt → ~/.ssh/id_rsa` — blocked
+  because the resolved path matches `ssh-private-key`.
+- `Bash("cat /tmp/plain")` where `/tmp/plain → .env` — blocked because the
+  resolved token matches the `.env*` reference guard.
+- `.env.example` (a real file, not a symlink) still passes via the
+  allowlist.
+- A nonexistent path (realpath throws) silently falls back to raw-name
+  matching, matching the pre-symlink behavior — a missing file can't be a
+  secret anyway.
 
 ## Tests
 

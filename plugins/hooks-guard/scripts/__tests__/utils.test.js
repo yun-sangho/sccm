@@ -4,7 +4,17 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
-const { LEVELS, LOG_DIR, log, splitShellChain } = require("../utils");
+const {
+  LEVELS,
+  LOG_DIR,
+  log,
+  splitShellChain,
+  loadGuardConfig,
+  resolveSafetyLevel,
+  resolvePath,
+  _resetGuardConfigCache,
+  CONFIG_FILENAME,
+} = require("../utils");
 
 describe("utils", () => {
   // ── LEVELS ──
@@ -235,6 +245,158 @@ describe("utils", () => {
       assert.equal(parsed.length, 2);
       assert.equal(parsed[0].hook, "guard-bash");
       assert.equal(parsed[1].hook, "guard-secrets");
+    });
+  });
+
+  // ── resolvePath ──
+
+  describe("resolvePath", () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hooks-guard-resolve-"));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("returns fallback object for empty input", () => {
+      assert.deepEqual(resolvePath(""), {
+        raw: "",
+        resolved: "",
+        viaSymlink: false,
+      });
+    });
+
+    it("returns fallback object for null", () => {
+      assert.deepEqual(resolvePath(null), {
+        raw: null,
+        resolved: null,
+        viaSymlink: false,
+      });
+    });
+
+    it("returns raw on missing file (realpath throws)", () => {
+      const bogus = path.join(tmpDir, "does-not-exist.txt");
+      const r = resolvePath(bogus);
+      assert.equal(r.raw, bogus);
+      assert.equal(r.resolved, bogus);
+      assert.equal(r.viaSymlink, false);
+    });
+
+    it("resolves a symlink to its target and flags viaSymlink=true", () => {
+      const target = path.join(tmpDir, "secret-target");
+      const linkPath = path.join(tmpDir, "innocent-link");
+      fs.writeFileSync(target, "shhh");
+      fs.symlinkSync(target, linkPath);
+
+      const r = resolvePath(linkPath);
+      assert.equal(r.raw, linkPath);
+      assert.equal(r.resolved, fs.realpathSync(target));
+      assert.equal(r.viaSymlink, true);
+    });
+
+    it("non-symlink real file: resolved differs only if cwd-relative", () => {
+      const real = path.join(tmpDir, "plain.txt");
+      fs.writeFileSync(real, "hi");
+      const r = resolvePath(real);
+      assert.equal(r.raw, real);
+      // On some platforms /tmp is itself a symlink (e.g. macOS
+      // /tmp -> /private/tmp); accept that but make sure we did
+      // get an absolute resolved path back.
+      assert.ok(path.isAbsolute(r.resolved));
+    });
+  });
+
+  // ── loadGuardConfig / resolveSafetyLevel ──
+
+  describe("guard config & safety level", () => {
+    let tmpDir;
+    let origProjectDir;
+    let origEnv;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hooks-guard-cfg-"));
+      origProjectDir = process.env.CLAUDE_PROJECT_DIR;
+      origEnv = process.env.SCCM_GUARD_LEVEL;
+      process.env.CLAUDE_PROJECT_DIR = tmpDir;
+      delete process.env.SCCM_GUARD_LEVEL;
+      fs.mkdirSync(path.join(tmpDir, ".claude"), { recursive: true });
+      _resetGuardConfigCache();
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      if (origProjectDir !== undefined) {
+        process.env.CLAUDE_PROJECT_DIR = origProjectDir;
+      } else {
+        delete process.env.CLAUDE_PROJECT_DIR;
+      }
+      if (origEnv !== undefined) {
+        process.env.SCCM_GUARD_LEVEL = origEnv;
+      } else {
+        delete process.env.SCCM_GUARD_LEVEL;
+      }
+      _resetGuardConfigCache();
+    });
+
+    it("loadGuardConfig returns {} when no config exists", () => {
+      assert.deepEqual(loadGuardConfig(), {});
+    });
+
+    it("loadGuardConfig reads project-level config", () => {
+      fs.writeFileSync(
+        path.join(tmpDir, ".claude", CONFIG_FILENAME),
+        JSON.stringify({ safetyLevel: "strict", envRefAllowCommands: ["foo"] })
+      );
+      _resetGuardConfigCache();
+      const cfg = loadGuardConfig();
+      assert.equal(cfg.safetyLevel, "strict");
+      assert.deepEqual(cfg.envRefAllowCommands, ["foo"]);
+    });
+
+    it("loadGuardConfig returns {} when JSON is malformed", () => {
+      fs.writeFileSync(
+        path.join(tmpDir, ".claude", CONFIG_FILENAME),
+        "{ not json"
+      );
+      _resetGuardConfigCache();
+      assert.deepEqual(loadGuardConfig(), {});
+    });
+
+    it("resolveSafetyLevel returns fallback when nothing is set", () => {
+      assert.equal(resolveSafetyLevel("high"), "high");
+      assert.equal(resolveSafetyLevel("strict"), "strict");
+    });
+
+    it("resolveSafetyLevel: env var wins over config", () => {
+      fs.writeFileSync(
+        path.join(tmpDir, ".claude", CONFIG_FILENAME),
+        JSON.stringify({ safetyLevel: "strict" })
+      );
+      _resetGuardConfigCache();
+      process.env.SCCM_GUARD_LEVEL = "critical";
+      assert.equal(resolveSafetyLevel("high"), "critical");
+    });
+
+    it("resolveSafetyLevel: invalid env var falls through to config", () => {
+      fs.writeFileSync(
+        path.join(tmpDir, ".claude", CONFIG_FILENAME),
+        JSON.stringify({ safetyLevel: "strict" })
+      );
+      _resetGuardConfigCache();
+      process.env.SCCM_GUARD_LEVEL = "nonsense";
+      assert.equal(resolveSafetyLevel("high"), "strict");
+    });
+
+    it("resolveSafetyLevel: invalid config safetyLevel falls through to fallback", () => {
+      fs.writeFileSync(
+        path.join(tmpDir, ".claude", CONFIG_FILENAME),
+        JSON.stringify({ safetyLevel: "bogus" })
+      );
+      _resetGuardConfigCache();
+      assert.equal(resolveSafetyLevel("high"), "high");
     });
   });
 });
