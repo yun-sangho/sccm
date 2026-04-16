@@ -60,6 +60,7 @@ describe("parseArgs", () => {
     assert.equal(a.dryRun, false);
     assert.equal(a.shared, false);
     assert.equal(a.target, null);
+    assert.equal(a.allowDefaultMode, false);
   });
 
   test("parses --dry-run", () => {
@@ -77,6 +78,13 @@ describe("parseArgs", () => {
     );
   });
 
+  test("parses --allow-default-mode", () => {
+    assert.equal(
+      parseArgs(["plan", "--allow-default-mode"]).allowDefaultMode,
+      true
+    );
+  });
+
   test("rejects --target without value", () => {
     assert.throws(() => parseArgs(["full", "--target"]), /requires a path/);
   });
@@ -91,10 +99,11 @@ describe("parseArgs", () => {
 });
 
 describe("listProfiles", () => {
-  test("returns at least min and base", () => {
+  test("returns at least min, base, and plan", () => {
     const profiles = listProfiles();
     assert.ok(profiles.includes("min"), "min missing");
     assert.ok(profiles.includes("base"), "base missing");
+    assert.ok(profiles.includes("plan"), "plan missing");
   });
 
   test("returns sorted", () => {
@@ -314,7 +323,7 @@ describe("mergeSandbox — permissions.allow", () => {
     assert.equal(second.diff.added.permissionsAllow.length, 0);
   });
 
-  test("never touches permissions.deny / ask / defaultMode", () => {
+  test("never touches permissions.deny / ask / defaultMode (base preset)", () => {
     const existing = {
       permissions: {
         defaultMode: "ask",
@@ -339,6 +348,74 @@ describe("mergeSandbox — permissions.allow", () => {
     const { diff } = mergeSandbox({}, loadPresetFile("base"));
     assert.ok(diff.added.permissionsAllow.length > 0);
     assert.ok(diff.added.permissionsAllow.includes("Bash(git:*)"));
+  });
+});
+
+describe("mergeSandbox — permissions.defaultMode opt-in", () => {
+  test("plan preset WITHOUT --allow-default-mode leaves defaultMode untouched", () => {
+    const existing = { permissions: { defaultMode: "acceptEdits" } };
+    const { merged, diff } = mergeSandbox(existing, loadPresetFile("plan"));
+    assert.equal(merged.permissions.defaultMode, "acceptEdits");
+    assert.ok(
+      diff.warnings.some((w) => w.includes("--allow-default-mode")),
+      "expected a warning about the flag"
+    );
+    // allow list still merges
+    assert.ok(merged.permissions.allow.includes("Bash(git log:*)"));
+  });
+
+  test("plan preset WITH --allow-default-mode overwrites defaultMode", () => {
+    const existing = { permissions: { defaultMode: "acceptEdits" } };
+    const { merged, diff } = mergeSandbox(
+      existing,
+      loadPresetFile("plan"),
+      { allowDefaultMode: true }
+    );
+    assert.equal(merged.permissions.defaultMode, "plan");
+    assert.ok(
+      diff.added.other.some((s) => s.includes("permissions.defaultMode")),
+      "expected a diff entry recording the defaultMode change"
+    );
+    assert.deepEqual(diff.warnings, []);
+  });
+
+  test("plan preset into empty settings applies defaultMode when opted-in", () => {
+    const { merged } = mergeSandbox({}, loadPresetFile("plan"), {
+      allowDefaultMode: true,
+    });
+    assert.equal(merged.permissions.defaultMode, "plan");
+  });
+
+  test("plan preset into empty settings warns without opt-in (no defaultMode set)", () => {
+    const { merged, diff } = mergeSandbox({}, loadPresetFile("plan"));
+    assert.equal(merged.permissions?.defaultMode, undefined);
+    assert.ok(diff.warnings.some((w) => w.includes("--allow-default-mode")));
+  });
+
+  test("base preset has no defaultMode, opt-in flag is a no-op", () => {
+    const { merged, diff } = mergeSandbox({}, loadPresetFile("base"), {
+      allowDefaultMode: true,
+    });
+    assert.equal(merged.permissions?.defaultMode, undefined);
+    assert.ok(
+      !diff.warnings.some((w) => w.includes("--allow-default-mode")),
+      "no warning when preset lacks defaultMode"
+    );
+  });
+
+  test("re-applying plan with opt-in produces no new diff entry", () => {
+    const first = mergeSandbox({}, loadPresetFile("plan"), {
+      allowDefaultMode: true,
+    });
+    const second = mergeSandbox(first.merged, loadPresetFile("plan"), {
+      allowDefaultMode: true,
+    });
+    assert.ok(
+      !second.diff.added.other.some((s) =>
+        s.includes("permissions.defaultMode")
+      ),
+      "re-apply should not record a defaultMode change"
+    );
   });
 });
 
@@ -372,10 +449,12 @@ describe("preset files — schema whitelist", () => {
     "allowRead",
     "allowManagedReadPathsOnly",
   ]);
-  // Intentionally only "allow" — deny / ask / defaultMode must NEVER ship in
-  // a preset because the script would refuse to merge them anyway, and we
-  // do not want a preset to silently relax (deny→allow) or escalate (mode).
-  const ALLOWED_PERMISSIONS = new Set(["allow"]);
+  // "allow" and "defaultMode" only — deny / ask must NEVER ship in a preset
+  // because the script would refuse to merge them anyway. defaultMode is
+  // allowed but gated on --allow-default-mode, and is only expected in the
+  // `plan` preset (enforced by a dedicated test below).
+  const ALLOWED_PERMISSIONS = new Set(["allow", "defaultMode"]);
+  const PRESETS_WITH_DEFAULT_MODE = new Set(["plan"]);
 
   for (const name of listProfiles()) {
     test(`${name}.json — only whitelisted keys`, () => {
@@ -399,6 +478,19 @@ describe("preset files — schema whitelist", () => {
 
     test(`${name}.json — sandbox.enabled is true`, () => {
       assert.equal(loadPresetFile(name).sandbox.enabled, true);
+    });
+
+    test(`${name}.json — defaultMode presence matches policy`, () => {
+      const preset = loadPresetFile(name);
+      const hasMode = preset.permissions?.defaultMode !== undefined;
+      const shouldHaveMode = PRESETS_WITH_DEFAULT_MODE.has(name);
+      assert.equal(
+        hasMode,
+        shouldHaveMode,
+        shouldHaveMode
+          ? `${name} must ship permissions.defaultMode`
+          : `${name} must NOT ship permissions.defaultMode (opt-in only for: ${[...PRESETS_WITH_DEFAULT_MODE].join(", ")})`
+      );
     });
   }
 });
