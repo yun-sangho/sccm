@@ -18,7 +18,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const { LOG_DIR } = require("./lib/io");
+const { LOG_DIR, LOG_DIR_V1 } = require("./lib/io");
 
 const SANDBOX_PRESET_PATH = path.join(
   process.env.CLAUDE_PROJECT_DIR || process.cwd(),
@@ -41,6 +41,7 @@ function parseArgs(argv) {
     json: false,
     presetPath: SANDBOX_PRESET_PATH,
     logDir: LOG_DIR,
+    logDirV1: LOG_DIR_V1,
   };
   for (const a of argv) {
     const m = /^--([a-z-]+)(?:=(.*))?$/.exec(a);
@@ -52,7 +53,11 @@ function parseArgs(argv) {
     else if (k === "prune-days") opts.pruneDays = Number(v);
     else if (k === "json") opts.json = true;
     else if (k === "preset") opts.presetPath = v;
-    else if (k === "log-dir") opts.logDir = v;
+    else if (k === "log-dir") {
+      opts.logDir = v;
+      // Mirror the default v1 relationship for custom log dirs.
+      opts.logDirV1 = path.join(v, "v1");
+    } else if (k === "log-dir-v1") opts.logDirV1 = v;
   }
   return opts;
 }
@@ -79,24 +84,73 @@ function cutoffDate(days) {
   return d.toISOString().slice(0, 10);
 }
 
-function readEvents(dir, sinceDate) {
-  const files = listLogFiles(dir);
+// For v1 entries that predate the schema_version tag, infer the same
+// fields v2 writers emit so the downstream aggregation and the new
+// decision-breakdown table see a uniform shape. cmd_key / sample_cmds
+// logic in aggregate() does not depend on decision, so mixing works.
+function synthDecision(e) {
+  if (e.schema_version === 2 || typeof e.decision === "string") return e;
+  const mode = e.permission_mode || "default";
+  const modeRule = `claude.permission_mode=${mode}`;
+  let decision = null;
+  let reason = null;
+  let rule_id = null;
+  switch (e.event) {
+    case "post":
+      decision = "allow";
+      reason = "tool ran";
+      rule_id = modeRule;
+      break;
+    case "post_failure":
+      decision = "allow";
+      reason = "tool ran then failed";
+      rule_id = modeRule;
+      break;
+    case "permission_request":
+      decision = "confirm";
+      reason = "user prompt requested";
+      break;
+    case "permission_denied":
+      decision = "deny";
+      reason = e.reason || "denied";
+      break;
+    default:
+      break;
+  }
+  return {
+    ...e,
+    schema_version: 1,
+    decision,
+    reason,
+    ...(rule_id ? { rule_id } : {}),
+  };
+}
+
+function readEvents(dir, sinceDate, dirV1 = null) {
   const events = [];
-  for (const f of files) {
-    if (sinceDate && !isOnOrAfter(dateFromFile(f), sinceDate)) continue;
-    const full = path.join(dir, f);
-    let raw;
-    try {
-      raw = fs.readFileSync(full, "utf8");
-    } catch {
-      continue;
-    }
-    for (const line of raw.split("\n")) {
-      if (!line.trim()) continue;
+  const dirs = [dir];
+  // v1 archive sits alongside, read it too so old data still aggregates
+  // through the same pipeline. Skipped silently if missing.
+  if (dirV1 && fs.existsSync(dirV1)) dirs.push(dirV1);
+
+  for (const d of dirs) {
+    const files = listLogFiles(d);
+    for (const f of files) {
+      if (sinceDate && !isOnOrAfter(dateFromFile(f), sinceDate)) continue;
+      const full = path.join(d, f);
+      let raw;
       try {
-        events.push(JSON.parse(line));
+        raw = fs.readFileSync(full, "utf8");
       } catch {
-        // Skip corrupt lines rather than abort the whole review.
+        continue;
+      }
+      for (const line of raw.split("\n")) {
+        if (!line.trim()) continue;
+        try {
+          events.push(synthDecision(JSON.parse(line)));
+        } catch {
+          // Skip corrupt lines rather than abort the whole review.
+        }
       }
     }
   }
@@ -220,6 +274,42 @@ function classifyGroup(group) {
   if (has.post) return "auto_allowed";
   if (has.post_failure) return "auto_allowed_failed";
   return "unknown";
+}
+
+/**
+ * Aggregate raw events by rule_id × decision. Unlike aggregate() below
+ * which groups by tool-call, this operates on individual events and
+ * answers "what policy layer approved/asked/denied, and how often".
+ * Feeds the "Decision breakdown" section of the markdown report.
+ */
+function aggregateDecisions(events) {
+  const table = new Map();
+  const bump = (ruleId) => {
+    const key = ruleId || "(none)";
+    if (!table.has(key)) {
+      table.set(key, {
+        rule_id: key,
+        allow: 0,
+        confirm: 0,
+        deny: 0,
+        sample_reasons: new Set(),
+      });
+    }
+    return table.get(key);
+  };
+  for (const e of events) {
+    const d = e.decision;
+    if (d !== "allow" && d !== "confirm" && d !== "deny") continue;
+    const row = bump(e.rule_id);
+    row[d]++;
+    if (e.reason && row.sample_reasons.size < 3) {
+      row.sample_reasons.add(e.reason);
+    }
+  }
+  return [...table.values()].sort(
+    (a, b) =>
+      b.allow + b.confirm + b.deny - (a.allow + a.confirm + a.deny)
+  );
 }
 
 function aggregate(groupsAndOrphans) {
@@ -363,7 +453,7 @@ function buildSuggestions(agg, preset) {
   return { add, denies };
 }
 
-function renderMarkdown(opts, agg, suggestions, preset, pruned) {
+function renderMarkdown(opts, agg, suggestions, preset, pruned, decisions) {
   const lines = [];
   lines.push(`# permission-log review`);
   lines.push("");
@@ -383,6 +473,23 @@ function renderMarkdown(opts, agg, suggestions, preset, pruned) {
     );
   }
   lines.push("");
+
+  if (decisions && decisions.length > 0) {
+    lines.push(`## Decision breakdown (by rule_id)`);
+    lines.push("");
+    lines.push("| rule_id | allow | confirm | deny | sample reasons |");
+    lines.push("|---|---:|---:|---:|---|");
+    for (const d of decisions) {
+      const reasons = [...d.sample_reasons]
+        .slice(0, 3)
+        .map((r) => "`" + r.replace(/\|/g, "\\|") + "`")
+        .join("<br>");
+      lines.push(
+        `| \`${d.rule_id}\` | ${d.allow} | ${d.confirm} | ${d.deny} | ${reasons} |`
+      );
+    }
+    lines.push("");
+  }
 
   lines.push(`## Summary by cmd_key`);
   lines.push("");
@@ -486,9 +593,10 @@ function renderMarkdown(opts, agg, suggestions, preset, pruned) {
 function main() {
   const opts = parseArgs(process.argv.slice(2));
   const since = opts.since || cutoffDate(opts.days);
-  const events = readEvents(opts.logDir, since);
+  const events = readEvents(opts.logDir, since, opts.logDirV1);
   const grouped = groupEvents(events);
   const agg = aggregate(grouped);
+  const decisions = aggregateDecisions(events);
   const preset = loadPresetAllowSet(opts.presetPath);
   const suggestions = buildSuggestions(agg, preset);
 
@@ -510,6 +618,10 @@ function main() {
             sample_cmds: [...b.sample_cmds],
             permission_suggestions: [...b.permission_suggestions],
           })),
+          decisions: decisions.map((d) => ({
+            ...d,
+            sample_reasons: [...d.sample_reasons],
+          })),
           suggestions,
           preset_missing: preset.missing,
           pruned,
@@ -521,7 +633,9 @@ function main() {
     return;
   }
 
-  process.stdout.write(renderMarkdown(opts, agg, suggestions, preset, pruned));
+  process.stdout.write(
+    renderMarkdown(opts, agg, suggestions, preset, pruned, decisions)
+  );
 }
 
 // Only run main() when invoked as a script, not when required by tests.
@@ -535,6 +649,8 @@ module.exports = {
   groupEvents,
   classifyGroup,
   aggregate,
+  aggregateDecisions,
+  synthDecision,
   loadPresetAllowSet,
   isCovered,
   patternsForKey,
