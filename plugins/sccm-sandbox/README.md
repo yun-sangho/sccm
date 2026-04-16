@@ -30,6 +30,7 @@ info` would still hit a permission prompt. Other `permissions.*` keys
 ```
 /sccm-sandbox:apply              # defaults to 'base'
 /sccm-sandbox:apply min          # minimal profile
+/sccm-sandbox:apply narrow       # subcommand-scoped (tighter than base)
 /sccm-sandbox:apply base --dry-run
 /sccm-sandbox:apply base --shared
 ```
@@ -38,7 +39,7 @@ Arguments are forwarded to `scripts/sandbox-apply.mjs`:
 
 | Argument | What it does |
 |----------|-------------|
-| `[profile]` | `min` or `base`. Optional — defaults to `base`. |
+| `[profile]` | `min`, `narrow`, or `base`. Optional — defaults to `base`. |
 | `--dry-run` | Print the diff but do not write. |
 | `--shared` | Merge into `.claude/settings.json` (team-committed) instead of `.claude/settings.local.json`. |
 | `--target PATH` | Merge into a custom settings file. |
@@ -51,7 +52,8 @@ Arguments are forwarded to `scripts/sandbox-apply.mjs`:
 | Profile | What it allows | Heads-up |
 |---------|---------------|----------|
 | `min` | Anthropic API + GitHub HTTPS + npm registry + Supabase + Vercel. Minimal bootstrap. | Stays fully sandboxed |
-| `base` (default) | Broader network (Yarn / PyPI / Docker Hub / Supabase / Vercel …) **and** runs `docker / npm / pnpm / yarn / bun / pip / uv / poetry / cargo / go / git / gh` **outside** the sandbox via `excludedCommands` | Excluded commands have **no** OS-level sandbox protection — see trade-off below |
+| `narrow` | Same network as `base`. `excludedCommands` is **subcommand-scoped**: `pnpm install *`, `git push *`, `gh pr view *`, `docker pull *`, `cargo build *` etc. | Dangerous subcommands (`pnpm dlx`, `gh pr merge`, `cargo install`, `docker run`) fall back to the sandbox / permission flow → more prompts but smaller unsandboxed surface than `base` |
+| `base` (default) | Broader network (Yarn / PyPI / Docker Hub / Supabase / Vercel …) **and** runs `docker / npm / pnpm / yarn / bun / pip / uv / poetry / cargo / go / git / gh` **outside** the sandbox via verb-level `excludedCommands` (`pnpm *`, `git *`, `gh *`, `docker *`, …) | Excluded commands have **no** OS-level sandbox protection — see trade-off below |
 
 ### Trade-off: `excludedCommands` runs unsandboxed
 
@@ -63,8 +65,8 @@ all child processes (including `npm` postinstall scripts) inherit that. If
 `hooks-guard` is also installed, its PreToolUse layer still applies, so the
 dangerous patterns it knows about (`git push --force main`,
 `docker run --privileged`, …) are still blocked, but OS-level protection
-is gone for those commands. If you want stricter sandboxing, use `min`
-instead.
+is gone for those commands. If you want stricter sandboxing, use `narrow`
+or `min` instead.
 
 The `base` preset also adds matching `Bash(<tool>:*)` entries to
 `permissions.allow`, so these tools run without a permission prompt as well
@@ -75,6 +77,27 @@ as without a sandbox. If you want prompts for some of them, edit
 To narrow the scope after applying, edit `.claude/settings.local.json` and
 remove individual entries from `sandbox.excludedCommands` and/or
 `permissions.allow`.
+
+### `narrow` vs `base`: switching semantics
+
+`narrow` is an **alternative to** `base`, not an addition. The merge in
+`sandbox-apply.mjs` is exact-string concat + dedupe — it has no awareness
+that `pnpm *` is a superset of `pnpm install *`. So if you applied `base`
+first and then run `/sccm-sandbox:apply narrow`, the result is the
+**union** of both lists. Because `excludedCommands` is permissive (any match
+excludes), the broad `pnpm *` from `base` still matches everything and the
+narrow entries don't tighten anything — the change is a silent no-op
+security-wise.
+
+To switch from `base` to `narrow`:
+
+1. Open `.claude/settings.local.json`.
+2. Remove the broad verb-level entries from `sandbox.excludedCommands` and
+   the matching `Bash(<verb>:*)` from `permissions.allow` (`pnpm *`,
+   `git *`, `gh *`, `docker *`, `npm *`, `yarn *`, `bun *`, `pip *`,
+   `uv *`, `poetry *`, `cargo *`, `go *`).
+3. Run `/sccm-sandbox:apply narrow`.
+4. Restart Claude Code.
 
 ## Merge semantics
 

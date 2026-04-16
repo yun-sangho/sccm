@@ -15,7 +15,14 @@ any other top-level key (`enabledPlugins`, `mcpServers`, `hooks`, …).
 ## Profiles
 
 - `base` — full dev workflow (default if no profile is given). Broader
-  network + runs package managers / git via `excludedCommands`.
+  network + runs package managers / git via `excludedCommands` at the
+  verb level (`pnpm *`, `git *`, `gh *`, `docker *`, …).
+- `narrow` — same network as `base`, but `excludedCommands` is scoped to
+  specific subcommands (`pnpm install *`, `git push *`, `gh pr view *`,
+  `docker pull *`, …). Dangerous subcommands (`pnpm dlx`, `gh pr merge`,
+  `cargo install`, `docker run`) fall back to the sandbox/permission
+  flow. Note: applying `narrow` over a settings file that already has
+  `base` applied is a silent no-op security-wise — see the README.
 - `min` — minimal bootstrap. Just Anthropic + GitHub + npm + Supabase + Vercel.
 
 ## Steps

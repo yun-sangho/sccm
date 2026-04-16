@@ -342,6 +342,119 @@ describe("mergeSandbox — permissions.allow", () => {
   });
 });
 
+describe("narrow preset — subcommand scoping", () => {
+  test("excludes subcommand-scoped patterns, NOT verb-level wildcards", () => {
+    const narrow = loadPresetFile("narrow");
+    const ex = new Set(narrow.sandbox.excludedCommands);
+
+    // Verb-level wildcards must NOT appear — that's what makes this profile
+    // narrow vs. base.
+    for (const broad of [
+      "pnpm *",
+      "npm *",
+      "yarn *",
+      "bun *",
+      "pip *",
+      "pip3 *",
+      "uv *",
+      "poetry *",
+      "pipenv *",
+      "cargo *",
+      "go *",
+      "git *",
+      "gh *",
+      "docker *",
+      "docker compose *",
+    ]) {
+      assert.ok(
+        !ex.has(broad),
+        `narrow.json must NOT contain broad pattern "${broad}"`
+      );
+    }
+
+    // Concrete narrow patterns that ARE expected.
+    for (const need of [
+      "git push *",
+      "git pull *",
+      "git fetch *",
+      "pnpm install *",
+      "pnpm add *",
+      "npm install *",
+      "cargo build *",
+      "cargo fetch *",
+      "go build *",
+      "gh pr view *",
+      "gh api *",
+      "docker pull *",
+      "docker build *",
+      "docker compose pull *",
+    ]) {
+      assert.ok(
+        ex.has(need),
+        `narrow.json must contain "${need}"`
+      );
+    }
+  });
+
+  test("permissions.allow mirrors excludedCommands at subcommand scope", () => {
+    const narrow = loadPresetFile("narrow");
+    const allow = new Set(narrow.permissions.allow);
+
+    // Verb-level allows must NOT appear.
+    for (const broad of [
+      "Bash(pnpm:*)",
+      "Bash(npm:*)",
+      "Bash(yarn:*)",
+      "Bash(cargo:*)",
+      "Bash(go:*)",
+      "Bash(git:*)",
+      "Bash(gh:*)",
+      "Bash(docker:*)",
+      "Bash(docker compose:*)",
+    ]) {
+      assert.ok(
+        !allow.has(broad),
+        `narrow.json permissions.allow must NOT contain broad "${broad}"`
+      );
+    }
+
+    // Subcommand-scoped allows that ARE expected.
+    for (const need of [
+      "Bash(git push:*)",
+      "Bash(pnpm install:*)",
+      "Bash(npm install:*)",
+      "Bash(cargo build:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh api:*)",
+      "Bash(docker pull:*)",
+      "Bash(docker compose pull:*)",
+    ]) {
+      assert.ok(
+        allow.has(need),
+        `narrow.json permissions.allow must contain "${need}"`
+      );
+    }
+  });
+
+  test("merging narrow into {} carries the narrow patterns", () => {
+    const { merged } = mergeSandbox({}, loadPresetFile("narrow"));
+    assert.equal(merged.sandbox.enabled, true);
+    assert.ok(merged.sandbox.excludedCommands.includes("git push *"));
+    assert.ok(merged.sandbox.excludedCommands.includes("pnpm install *"));
+    assert.ok(!merged.sandbox.excludedCommands.includes("git *"));
+    assert.ok(merged.permissions.allow.includes("Bash(git push:*)"));
+    assert.ok(merged.permissions.allow.includes("Bash(pnpm install:*)"));
+    assert.ok(!merged.permissions.allow.includes("Bash(git:*)"));
+  });
+
+  test("re-applying narrow over its own output adds zero entries", () => {
+    const first = mergeSandbox({}, loadPresetFile("narrow"));
+    const second = mergeSandbox(first.merged, loadPresetFile("narrow"));
+    assert.equal(second.diff.added.excludedCommands.length, 0);
+    assert.equal(second.diff.added.permissionsAllow.length, 0);
+  });
+});
+
 describe("preset files — schema whitelist", () => {
   const ALLOWED_TOP = new Set(["sandbox", "permissions"]);
   const ALLOWED_SANDBOX = new Set([
