@@ -14,7 +14,10 @@ writes files. Use `/hooks-guard:guard-allow` to add or remove entries.
    Defined in `DEFAULT_ENV_REF_ALLOW_COMMANDS` in guard-secrets.js.
 
 2. **User exceptions** — exact match, loaded from
-   `guard-secrets.config.json` (project-level or user-level).
+   `hooks-guard.config.json` (project-level or user-level). The legacy
+   filename `guard-secrets.config.json` is still read for backwards
+   compatibility — when reporting, treat both as valid sources but
+   surface which one was actually loaded.
 
 ## Steps
 
@@ -28,16 +31,20 @@ writes files. Use `/hooks-guard:guard-allow` to add or remove entries.
 
    a. **Read built-in defaults** from the plugin source:
       ```
-      node -e "const g = require('${CLAUDE_PLUGIN_ROOT}/scripts/guard-secrets.js'); console.log(JSON.stringify({defaults: g.DEFAULT_ENV_REF_ALLOW_COMMANDS, configFilename: g.CONFIG_FILENAME}))"
+      node -e "const g = require('${CLAUDE_PLUGIN_ROOT}/scripts/guard-secrets.js'); const u = require('${CLAUDE_PLUGIN_ROOT}/scripts/utils.js'); console.log(JSON.stringify({defaults: g.DEFAULT_ENV_REF_ALLOW_COMMANDS, configFilename: u.CONFIG_FILENAME, legacyConfigFilename: u.LEGACY_CONFIG_FILENAME}))"
       ```
 
-   b. **Determine config file paths:**
-      - Project: `${CLAUDE_PROJECT_DIR}/.claude/guard-secrets.config.json`
+   b. **Determine config file paths** (both canonical and legacy):
+      - Project canonical: `${CLAUDE_PROJECT_DIR}/.claude/hooks-guard.config.json`
         (if `CLAUDE_PROJECT_DIR` is not set, use cwd)
-      - User: `~/.claude/guard-secrets.config.json`
+      - Project legacy: `${CLAUDE_PROJECT_DIR}/.claude/guard-secrets.config.json`
+      - User canonical: `~/.claude/hooks-guard.config.json`
+      - User legacy: `~/.claude/guard-secrets.config.json`
 
    c. **Read each config file** using the Read tool. Note which exist
-      and which don't.
+      and which don't. If a legacy file exists at a scope where the
+      canonical file does NOT exist, flag it in the report so the user
+      knows to migrate.
 
 3. **Display the report.** Format it clearly:
 
@@ -58,13 +65,13 @@ writes files. Use `/hooks-guard:guard-allow` to add or remove entries.
    git merge, git rebase, git cherry-pick
 
    ### Project-level exceptions (exact match)
-   Path: /path/to/.claude/guard-secrets.config.json
-   Status: [exists | not found]
+   Path: /path/to/.claude/hooks-guard.config.json
+   Status: [exists | not found | (legacy guard-secrets.config.json found)]
    Entries: (list or "none")
 
    ### User-level exceptions (exact match)
-   Path: ~/.claude/guard-secrets.config.json
-   Status: [exists | not found]
+   Path: ~/.claude/hooks-guard.config.json
+   Status: [exists | not found | (legacy guard-secrets.config.json found)]
    Entries: (list or "none")
 
    ### Active resolution

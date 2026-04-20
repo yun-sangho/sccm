@@ -14,6 +14,7 @@ const {
   resolvePath,
   _resetGuardConfigCache,
   CONFIG_FILENAME,
+  LEGACY_CONFIG_FILENAME,
 } = require("../utils");
 
 describe("utils", () => {
@@ -397,6 +398,47 @@ describe("utils", () => {
       );
       _resetGuardConfigCache();
       assert.equal(resolveSafetyLevel("high"), "high");
+    });
+
+    // ── Canonical vs legacy config filename ──
+
+    it("LEGACY_CONFIG_FILENAME is guard-secrets.config.json", () => {
+      assert.equal(LEGACY_CONFIG_FILENAME, "guard-secrets.config.json");
+    });
+
+    it("CONFIG_FILENAME is hooks-guard.config.json", () => {
+      assert.equal(CONFIG_FILENAME, "hooks-guard.config.json");
+    });
+
+    it("loadGuardConfig: legacy filename is read when canonical absent", () => {
+      fs.writeFileSync(
+        path.join(tmpDir, ".claude", LEGACY_CONFIG_FILENAME),
+        JSON.stringify({ safetyLevel: "strict" })
+      );
+      _resetGuardConfigCache();
+      assert.equal(loadGuardConfig().safetyLevel, "strict");
+    });
+
+    it("loadGuardConfig: canonical wins over legacy in same directory", () => {
+      fs.writeFileSync(
+        path.join(tmpDir, ".claude", CONFIG_FILENAME),
+        JSON.stringify({ safetyLevel: "critical" })
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, ".claude", LEGACY_CONFIG_FILENAME),
+        JSON.stringify({ safetyLevel: "strict" })
+      );
+      _resetGuardConfigCache();
+      assert.equal(loadGuardConfig().safetyLevel, "critical");
+    });
+
+    it("resolveSafetyLevel: legacy filename still supplies safetyLevel", () => {
+      fs.writeFileSync(
+        path.join(tmpDir, ".claude", LEGACY_CONFIG_FILENAME),
+        JSON.stringify({ safetyLevel: "strict" })
+      );
+      _resetGuardConfigCache();
+      assert.equal(resolveSafetyLevel("high"), "strict");
     });
   });
 });

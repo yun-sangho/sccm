@@ -25,8 +25,9 @@ const {
   resolveSafetyLevel,
 } = require("./utils");
 
-// Resolved in priority order: SCCM_GUARD_LEVEL env → guard-secrets.config.json
-// "safetyLevel" → fallback "high". See utils.resolveSafetyLevel for details.
+// Resolved in priority order: SCCM_GUARD_LEVEL env → hooks-guard.config.json
+// (legacy: guard-secrets.config.json) "safetyLevel" → fallback "high".
+// See utils.resolveSafetyLevel for details.
 const SAFETY_LEVEL = resolveSafetyLevel("high");
 
 const PATTERNS = [

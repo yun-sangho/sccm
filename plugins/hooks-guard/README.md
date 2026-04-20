@@ -101,7 +101,7 @@ and any future tool that reads `.env` files.
 | Layer | Source | Matching | Editable? |
 |-------|--------|----------|-----------|
 | **Built-in safe commands** | Hardcoded in guard-secrets.js | Prefix match (`"ls"` allows `ls -la .env`) | No — curated safe verbs |
-| **User exceptions** | `guard-secrets.config.json` | **Exact match** (`"grep SECRET .env"` allows only that exact command) | Yes — via config file or `/guard-allow` |
+| **User exceptions** | `hooks-guard.config.json` (legacy: `guard-secrets.config.json`) | **Exact match** (`"grep SECRET .env"` allows only that exact command) | Yes — via config file or `/guard-allow` |
 
 Built-in defaults are **always active**. User exceptions are **additive** (they
 do not replace the defaults).
@@ -123,15 +123,23 @@ do not replace the defaults).
 
 #### User exceptions (exact match, via config file)
 
-Create `guard-secrets.config.json` at one of these locations (first found wins):
+Create `hooks-guard.config.json` at one of these locations (first found wins):
 
 | Priority | Path | Use case |
 |----------|------|----------|
-| 1 (highest) | `{project}/.claude/guard-secrets.config.json` | Team/project policy (commit to repo) |
-| 2 | `~/.claude/guard-secrets.config.json` | Personal defaults (all projects) |
+| 1 (highest) | `{project}/.claude/hooks-guard.config.json` | Team/project policy (commit to repo) |
+| 2 | `{project}/.claude/guard-secrets.config.json` | Legacy project-level — still read, but the canonical name above is preferred |
+| 3 | `~/.claude/hooks-guard.config.json` | Personal defaults (all projects) |
+| 4 | `~/.claude/guard-secrets.config.json` | Legacy user-level — still read for backwards compatibility |
 
 Config file discovery uses `CLAUDE_PROJECT_DIR` and `HOME`, not `CLAUDE_PLUGIN_ROOT` —
 the config location is fully decoupled from where the plugin is installed.
+
+**Migration:** earlier versions of this plugin used `guard-secrets.config.json`.
+Existing files at that path are still read, so no immediate action is
+required. To migrate, rename the file to `hooks-guard.config.json` in the
+same directory. The `/hooks-guard:guard-config` slash command surfaces
+which filename was active at runtime.
 
 Format:
 
@@ -215,8 +223,9 @@ The safety level is resolved at hook start-up in this order (first wins):
 
 1. `SCCM_GUARD_LEVEL` environment variable (`critical` | `high` | `strict`;
    invalid values are silently ignored)
-2. `guard-secrets.config.json` → `"safetyLevel"` key (project or user-level —
-   same discovery order as `envRefAllowCommands`)
+2. `hooks-guard.config.json` → `"safetyLevel"` key (project or user-level —
+   same discovery order as `envRefAllowCommands`; legacy filename
+   `guard-secrets.config.json` is still read)
 3. Built-in fallback: `"high"`
 
 Examples:
@@ -226,7 +235,7 @@ Examples:
 export SCCM_GUARD_LEVEL=strict
 
 # Persistent project default — commit next to envRefAllowCommands
-# {project}/.claude/guard-secrets.config.json
+# {project}/.claude/hooks-guard.config.json
 {
   "safetyLevel": "strict",
   "envRefAllowCommands": [ ... ]

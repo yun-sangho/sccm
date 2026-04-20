@@ -12,7 +12,9 @@
  *
  * Resolved in this order (first wins):
  *   1. env var SCCM_GUARD_LEVEL
- *   2. guard-secrets.config.json -> "safetyLevel"
+ *   2. hooks-guard.config.json -> "safetyLevel"
+ *      (legacy filename guard-secrets.config.json also read for
+ *      backwards compatibility; canonical name preferred)
  *   3. fallback "high"
  *
  * Path canonicalization:
@@ -277,7 +279,8 @@ const DEFAULT_ENV_REF_ALLOW_COMMANDS = [
 
 // ── User-configurable exact-match exceptions ──
 //
-// Read from guard-secrets.config.json via the shared loadGuardConfig()
+// Read from hooks-guard.config.json (or legacy guard-secrets.config.json)
+// via the shared loadGuardConfig()
 // loader in utils.js. See CONFIG_FILENAME comment there for discovery
 // order. These entries are ADDITIVE to DEFAULT_ENV_REF_ALLOW_COMMANDS
 // and use EXACT matching (cmd.trim() === entry) for maximum tightness.

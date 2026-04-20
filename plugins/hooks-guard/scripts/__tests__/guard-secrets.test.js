@@ -870,6 +870,68 @@ describe("guard-secrets", () => {
       const result = loadUserEnvRefAllowCommands();
       assert.deepEqual(result, []);
     });
+
+    // ── Canonical vs legacy config filename ──
+
+    function writeNamedConfig(baseDir, filename, commands) {
+      const dir = path.join(baseDir, ".claude");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, filename),
+        JSON.stringify({ envRefAllowCommands: commands })
+      );
+    }
+
+    it("loads canonical hooks-guard.config.json", () => {
+      writeNamedConfig(tmpProject, "hooks-guard.config.json", [
+        "canonical-cmd .env",
+      ]);
+      process.env.CLAUDE_PROJECT_DIR = tmpProject;
+      process.env.HOME = tmpHome;
+      const result = loadUserEnvRefAllowCommands();
+      assert.deepEqual(result, ["canonical-cmd .env"]);
+    });
+
+    it("legacy guard-secrets.config.json still works when no canonical exists", () => {
+      writeNamedConfig(tmpProject, "guard-secrets.config.json", [
+        "legacy-cmd .env",
+      ]);
+      process.env.CLAUDE_PROJECT_DIR = tmpProject;
+      process.env.HOME = tmpHome;
+      const result = loadUserEnvRefAllowCommands();
+      assert.deepEqual(result, ["legacy-cmd .env"]);
+    });
+
+    it("canonical beats legacy in the same .claude/ directory", () => {
+      writeNamedConfig(tmpProject, "hooks-guard.config.json", [
+        "canonical-cmd .env",
+      ]);
+      writeNamedConfig(tmpProject, "guard-secrets.config.json", [
+        "legacy-cmd .env",
+      ]);
+      process.env.CLAUDE_PROJECT_DIR = tmpProject;
+      process.env.HOME = tmpHome;
+      const result = loadUserEnvRefAllowCommands();
+      assert.deepEqual(result, ["canonical-cmd .env"]);
+    });
+
+    it("project canonical beats user legacy (cross-scope precedence)", () => {
+      writeNamedConfig(tmpProject, "hooks-guard.config.json", ["proj-cmd .env"]);
+      writeNamedConfig(tmpHome, "guard-secrets.config.json", ["user-legacy .env"]);
+      process.env.CLAUDE_PROJECT_DIR = tmpProject;
+      process.env.HOME = tmpHome;
+      const result = loadUserEnvRefAllowCommands();
+      assert.deepEqual(result, ["proj-cmd .env"]);
+    });
+
+    it("project legacy beats user canonical (project always wins, even via legacy name)", () => {
+      writeNamedConfig(tmpProject, "guard-secrets.config.json", ["proj-legacy .env"]);
+      writeNamedConfig(tmpHome, "hooks-guard.config.json", ["user-canonical .env"]);
+      process.env.CLAUDE_PROJECT_DIR = tmpProject;
+      process.env.HOME = tmpHome;
+      const result = loadUserEnvRefAllowCommands();
+      assert.deepEqual(result, ["proj-legacy .env"]);
+    });
   });
 
   // ── Symlink canonicalization (OpenHarness parity) ──

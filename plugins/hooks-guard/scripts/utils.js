@@ -14,47 +14,64 @@ const LOG_DIR = path.join(
   "hooks-logs"
 );
 
-// ── Shared guard config (guard-secrets.config.json) ──
+// ── Shared guard config ──
 //
 // Loaded once per process. Read by both guard-secrets.js (safetyLevel,
 // envRefAllowCommands) and guard-bash.js (safetyLevel). Kept here so the
 // two hook scripts do not each do their own disk lookup / caching.
 //
-// Discovery order (first found wins):
-//   1. {CLAUDE_PROJECT_DIR}/.claude/guard-secrets.config.json  (project)
-//   2. ~/.claude/guard-secrets.config.json                     (user)
-//   3. {} (no config)
-const CONFIG_FILENAME = "guard-secrets.config.json";
+// Canonical filename: hooks-guard.config.json (matches the plugin slug
+// so it cannot collide with any other plugin installed in the same
+// .claude/ directory). The older filename guard-secrets.config.json is
+// still read for backwards compatibility — users who already have one
+// do not need to rename it — but new files should use the canonical
+// name.
+//
+// Discovery order (first file found wins):
+//   1. {CLAUDE_PROJECT_DIR}/.claude/hooks-guard.config.json        (project, canonical)
+//   2. {CLAUDE_PROJECT_DIR}/.claude/guard-secrets.config.json      (project, legacy)
+//   3. ~/.claude/hooks-guard.config.json                           (user, canonical)
+//   4. ~/.claude/guard-secrets.config.json                         (user, legacy)
+//   5. {} (no config)
+const CONFIG_FILENAME = "hooks-guard.config.json";
+const LEGACY_CONFIG_FILENAME = "guard-secrets.config.json";
 
 let _guardConfig = undefined;
 
 function loadGuardConfig() {
   if (_guardConfig !== undefined) return _guardConfig;
 
-  const candidates = [
+  const dirs = [
     path.join(
       process.env.CLAUDE_PROJECT_DIR || process.cwd(),
-      ".claude",
-      CONFIG_FILENAME
+      ".claude"
     ),
   ];
   try {
     const home = os.homedir();
-    if (home) candidates.push(path.join(home, ".claude", CONFIG_FILENAME));
+    if (home) dirs.push(path.join(home, ".claude"));
   } catch {
     // os.homedir() can throw on misconfigured systems — skip user-level
   }
 
-  for (const p of candidates) {
-    try {
-      const raw = fs.readFileSync(p, "utf8");
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object") {
-        _guardConfig = parsed;
-        return _guardConfig;
+  // Within each directory, prefer the canonical filename over the legacy
+  // one so a user who has migrated to hooks-guard.config.json in their
+  // project still wins over an older ~/.claude/guard-secrets.config.json
+  // they forgot to clean up.
+  const filenames = [CONFIG_FILENAME, LEGACY_CONFIG_FILENAME];
+
+  for (const dir of dirs) {
+    for (const name of filenames) {
+      try {
+        const raw = fs.readFileSync(path.join(dir, name), "utf8");
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          _guardConfig = parsed;
+          return _guardConfig;
+        }
+      } catch {
+        // File missing or invalid JSON — try next candidate
       }
-    } catch {
-      // File missing or invalid JSON — try next candidate
     }
   }
 
@@ -257,6 +274,7 @@ module.exports = {
   LEVELS,
   LOG_DIR,
   CONFIG_FILENAME,
+  LEGACY_CONFIG_FILENAME,
   log,
   readStdin,
   block,
