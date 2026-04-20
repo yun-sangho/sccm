@@ -41,7 +41,9 @@ const CONSUMERS = [
   },
   {
     plugin: "hooks-permission-log",
-    modules: ["stdin.js", "logging.js", "exit.js", "shell-chain.js"],
+    // Note: no exit.js — this plugin observes and logs, it never
+    // blocks the tool chain, so it does not need block()/allow().
+    modules: ["stdin.js", "logging.js", "shell-chain.js"],
   },
 ];
 

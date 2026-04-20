@@ -61,7 +61,7 @@
       "name": "hooks-permission-log",
       "source": "./plugins/hooks-permission-log",
       "description": "Log permission-flow events (Pre/PermissionRequest/Post/Failure) and review them to refine sandbox and guard settings",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "author": {
         "name": "Sangho"
       },
