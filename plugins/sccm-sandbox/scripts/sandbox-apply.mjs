@@ -11,20 +11,13 @@
  *   min    Minimal bootstrap — Anthropic + GitHub + npm + Supabase + Vercel.
  *   base   Default. Broader network + package managers / git via
  *          excludedCommands. Use this unless you have a reason not to.
- *   plan   Read-only exploration profile. Ships permissions.defaultMode=plan
- *          so Claude Code refuses mutating tools until you opt out of plan
- *          mode — pair with --allow-default-mode to actually activate it.
  *
  * Options:
- *   --target PATH         Settings file to merge into.
- *                         Default: <cwd>/.claude/settings.local.json
- *   --shared              Shortcut for --target <cwd>/.claude/settings.json
- *   --dry-run             Print the diff but do not write
- *   --allow-default-mode  Opt-in: let a preset's permissions.defaultMode
- *                         overwrite the user's current value. Default OFF
- *                         preserves the invariant that deny/ask/defaultMode
- *                         are never silently changed.
- *   -h, --help            Show this help
+ *   --target PATH   Settings file to merge into.
+ *                   Default: <cwd>/.claude/settings.local.json
+ *   --shared        Shortcut for --target <cwd>/.claude/settings.json
+ *   --dry-run       Print the diff but do not write
+ *   -h, --help      Show this help
  *
  * Merge semantics:
  *   - Array fields (allowedDomains, allowWrite, excludedCommands, ...) are
@@ -37,11 +30,8 @@
  *     touches it because sandbox.excludedCommands is useless without matching
  *     allow patterns — without them, every `git status` or `docker info` would
  *     still hit a permission prompt.
- *   - permissions.defaultMode is only written when --allow-default-mode is
- *     passed AND the preset ships one. Without the flag we emit a warning
- *     and leave the user's value alone.
- *   - Top-level keys outside `sandbox`, `permissions.allow`, and the
- *     opt-in `permissions.defaultMode` (permissions.deny, permissions.ask,
+ *   - Top-level keys outside `sandbox` and `permissions.allow`
+ *     (permissions.deny, permissions.ask, permissions.defaultMode,
  *     enabledPlugins, mcpServers, hooks, statusLine, agent, ...) are never
  *     touched.
  *
@@ -103,18 +93,15 @@ ${listProfiles()
   .join("\n")}
 
 Options:
-  --target PATH         Settings file to merge into
-                        (default: <cwd>/.claude/settings.local.json)
-  --shared              Shortcut for --target <cwd>/.claude/settings.json
-  --dry-run             Print the diff but do not write
-  --allow-default-mode  Opt-in: apply the preset's permissions.defaultMode
-                        (only relevant for the 'plan' profile)
-  -h, --help            Show this help
+  --target PATH   Settings file to merge into
+                  (default: <cwd>/.claude/settings.local.json)
+  --shared        Shortcut for --target <cwd>/.claude/settings.json
+  --dry-run       Print the diff but do not write
+  -h, --help      Show this help
 
 Examples:
   node sandbox-apply.mjs base
   node sandbox-apply.mjs min --dry-run
-  node sandbox-apply.mjs plan --allow-default-mode
   /sccm-sandbox:apply              # defaults to 'base'
   /sccm-sandbox:apply base --shared
 `
@@ -127,7 +114,6 @@ function parseArgs(argv) {
     target: null,
     shared: false,
     dryRun: false,
-    allowDefaultMode: false,
     help: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -139,8 +125,6 @@ function parseArgs(argv) {
       args.shared = true;
     } else if (a === "--dry-run") {
       args.dryRun = true;
-    } else if (a === "--allow-default-mode") {
-      args.allowDefaultMode = true;
     } else if (a === "-h" || a === "--help") {
       args.help = true;
     } else if (!args.profile && !a.startsWith("-")) {
@@ -216,14 +200,8 @@ function clone(obj) {
  * Merge a preset's sandbox block into an existing settings object.
  * Returns { merged, diff } where diff describes what was added.
  * Pure function — does not touch the filesystem.
- *
- * opts.allowDefaultMode — when true AND the preset ships
- *   permissions.defaultMode, overwrite the merged value. Default false
- *   preserves the invariant that deny/ask/defaultMode are never silently
- *   changed; a warning is emitted instead so the user knows the preset
- *   was partially applied.
  */
-function mergeSandbox(existing, preset, opts = {}) {
+function mergeSandbox(existing, preset) {
   const merged = clone(existing || {});
   const diff = {
     added: {
@@ -313,9 +291,8 @@ function mergeSandbox(existing, preset, opts = {}) {
   }
 
   // permissions.allow — concat+dedupe; user entries kept first.
-  // Intentionally scoped to .allow only — deny/ask are never touched even if
-  // the preset accidentally includes them. defaultMode is handled separately
-  // below via the --allow-default-mode opt-in.
+  // Intentionally scoped to .allow only — deny/ask/defaultMode are never
+  // touched even if the preset accidentally includes them.
   if (preset.permissions) {
     for (const k of ARRAY_KEYS_PERMISSIONS) {
       if (!Array.isArray(preset.permissions[k])) continue;
@@ -330,32 +307,6 @@ function mergeSandbox(existing, preset, opts = {}) {
       } else {
         diff.added.other.push(`permissions.${k}: +${newOnes.length}`);
       }
-    }
-  }
-
-  // permissions.defaultMode — opt-in only. The default is still "never touch"
-  // so an invocation that forgets the flag leaves the user's existing mode
-  // alone and emits a visible warning (replaces the old silent skip).
-  if (preset.permissions?.defaultMode !== undefined) {
-    const presetMode = preset.permissions.defaultMode;
-    if (opts.allowDefaultMode) {
-      if (!merged.permissions) merged.permissions = {};
-      const prev = merged.permissions.defaultMode;
-      if (prev !== presetMode) {
-        merged.permissions.defaultMode = presetMode;
-        diff.added.other.push(
-          `permissions.defaultMode: ${JSON.stringify(
-            prev ?? null
-          )} → ${JSON.stringify(presetMode)}`
-        );
-      }
-    } else {
-      diff.warnings.push(
-        `preset ships permissions.defaultMode=${JSON.stringify(
-          presetMode
-        )} but --allow-default-mode was not passed — leaving your current value as-is. ` +
-          `Pass --allow-default-mode to apply it.`
-      );
     }
   }
 
@@ -460,9 +411,7 @@ function main(argv = process.argv.slice(2)) {
     process.exit(2);
   }
 
-  const { merged, diff } = mergeSandbox(existing, preset, {
-    allowDefaultMode: args.allowDefaultMode,
-  });
+  const { merged, diff } = mergeSandbox(existing, preset);
 
   console.log(`Profile: ${args.profile}`);
   console.log(`Target:  ${targetPath}`);
