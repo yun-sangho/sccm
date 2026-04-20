@@ -133,12 +133,12 @@ function main() {
   const marketplace = JSON.parse(fs.readFileSync(marketplacePath, "utf8"));
   const results = marketplace.plugins.map(releasePlugin);
 
-  const released = results.filter((r) => r.status === "released");
-  console.log(
-    `\nrelease-plugins: ${released.length} new release(s), ${
-      results.length - released.length
-    } skipped`
-  );
+  const released = results.filter((r) => r.status === "released").length;
+  const skipped = results.filter((r) => r.status === "skip").length;
+  const dryRun = results.filter((r) => r.status === "dry-run").length;
+  const parts = [`${released} new release(s)`, `${skipped} skipped`];
+  if (dryRun) parts.push(`${dryRun} dry-run`);
+  console.log(`\nrelease-plugins: ${parts.join(", ")}`);
 }
 
 main();

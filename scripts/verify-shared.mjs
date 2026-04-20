@@ -31,28 +31,12 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import { CONSUMERS } from "./consumer-manifest.mjs";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, "..");
 const SRC_DIR = path.join(REPO_ROOT, "packages", "hooks-shared", "src");
-
-// Kept in sync with scripts/sync-shared.mjs. Deliberately duplicated
-// rather than shared — both scripts are tiny, and a mismatch between
-// sync and verify would itself be caught by `verify-shared` failing.
-const CONSUMERS = [
-  {
-    plugin: "hooks-guard",
-    modules: ["stdin.js", "logging.js", "exit.js", "shell-chain.js"],
-  },
-  {
-    plugin: "hooks-pnpm",
-    modules: ["stdin.js", "logging.js", "exit.js"],
-  },
-  {
-    plugin: "hooks-permission-log",
-    modules: ["stdin.js", "logging.js", "shell-chain.js"],
-  },
-];
 
 function read(p) {
   return fs.readFileSync(p);

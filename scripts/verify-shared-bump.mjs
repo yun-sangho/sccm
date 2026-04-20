@@ -26,15 +26,21 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import { CONSUMERS } from "./consumer-manifest.mjs";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, "..");
 
-// Kept in sync with scripts/sync-shared.mjs.
-const CONSUMERS = ["hooks-guard", "hooks-pnpm", "hooks-permission-log"];
-
+// All git invocations here are probes — we catch failures and handle
+// them, so stderr from the child (e.g. "fatal: Path 'foo' does not
+// exist in 'HEAD~1'") should not leak to the user's terminal.
 function sh(cmd) {
-  return execSync(cmd, { cwd: REPO_ROOT, encoding: "utf8" }).trim();
+  return execSync(cmd, {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 }
 
 // Returns { mode, base } where mode is "staged" (diff index vs HEAD)
@@ -56,18 +62,37 @@ function resolveMode() {
   return { mode: "range", base: "HEAD~1" };
 }
 
-function canonicalChanged({ mode, base }) {
+function changedCanonicalFiles({ mode, base }) {
   const cmd =
     mode === "staged"
       ? "git diff --cached --name-only"
       : `git diff --name-only ${base}...HEAD`;
-  const files = sh(cmd, { silent: true }).split("\n").filter(Boolean);
-  return files.some((f) => f.startsWith("packages/hooks-shared/src/"));
+  const files = sh(cmd).split("\n").filter(Boolean);
+  const prefix = "packages/hooks-shared/src/";
+  return files
+    .filter((f) => f.startsWith(prefix))
+    .map((f) => f.slice(prefix.length));
+}
+
+// Per-plugin impact: given the set of changed basename modules under
+// canonical src, return the plugins whose _shared/ output would be
+// affected. A plugin is affected iff its manifest declares any of
+// the changed modules.
+//
+// Why this matters: deleting packages/hooks-shared/src/index.js (not
+// in any consumer manifest) does not change any plugin's marketplace
+// payload, so requiring a bump would be a false alarm. Likewise,
+// changing shell-chain.js affects hooks-guard + hooks-permission-log
+// but NOT hooks-pnpm, which never syncs it.
+function affectedPlugins(changedModules) {
+  return CONSUMERS.filter(({ modules }) =>
+    modules.some((m) => changedModules.includes(m))
+  ).map(({ plugin }) => plugin);
 }
 
 function readVersionAt(ref, relPath) {
   try {
-    const raw = sh(`git show ${ref}:${relPath}`, { silent: true });
+    const raw = sh(`git show ${ref}:${relPath}`);
     return JSON.parse(raw).version;
   } catch {
     return null;
@@ -78,7 +103,7 @@ function readVersionAt(ref, relPath) {
 // contain). `git show :<path>` reads the index.
 function stagedVersion(relPath) {
   try {
-    const raw = sh(`git show :${relPath}`, { silent: true });
+    const raw = sh(`git show :${relPath}`);
     return JSON.parse(raw).version;
   } catch {
     return null;
@@ -92,20 +117,28 @@ function workingVersion(relPath) {
 
 function main() {
   const { mode, base } = resolveMode();
+  const changed = changedCanonicalFiles({ mode, base });
 
-  if (!canonicalChanged({ mode, base })) {
+  if (changed.length === 0) {
     console.log(
       "verify-shared-bump: no changes under packages/hooks-shared/src/ — skipped"
     );
     process.exit(0);
   }
 
+  const affected = affectedPlugins(changed);
+  if (affected.length === 0) {
+    console.log(
+      `verify-shared-bump: changes to [${changed.join(", ")}] do not affect any consumer's synced output — skipped`
+    );
+    process.exit(0);
+  }
+
   const missing = [];
-  for (const name of CONSUMERS) {
+  for (const name of affected) {
     const rel = `plugins/${name}/.claude-plugin/plugin.json`;
     const baseVer = readVersionAt(base, rel);
-    // If the base revision didn't have the file, nothing to enforce.
-    if (baseVer === null) continue;
+    if (baseVer === null) continue; // new plugin, nothing to diff
     const headVer =
       mode === "staged" ? stagedVersion(rel) || workingVersion(rel) : workingVersion(rel);
     if (headVer === baseVer) {
@@ -115,7 +148,7 @@ function main() {
 
   if (missing.length > 0) {
     console.error(
-      "verify-shared-bump: canonical source changed, but these consumer plugins did not bump their version:\n"
+      `verify-shared-bump: canonical changes to [${changed.join(", ")}] affect these consumers, but they did not bump their version:\n`
     );
     for (const m of missing) console.error(`  - ${m}`);
     console.error(
@@ -125,7 +158,7 @@ function main() {
   }
 
   console.log(
-    `verify-shared-bump: all ${CONSUMERS.length} consumers bumped (${mode} vs ${base})`
+    `verify-shared-bump: all ${affected.length} affected consumer(s) bumped (${mode} vs ${base})`
   );
 }
 

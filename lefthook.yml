@@ -21,7 +21,7 @@ pre-commit:
       # If the canonical source is staged, auto-regenerate synced copies
       # and stage them too so the commit is internally consistent. A
       # no-op when the staged change is elsewhere.
-      glob: "packages/hooks-shared/src/**/*.js"
+      glob: "packages/hooks-shared/src/*.js"
       run: |
         pnpm run sync-shared
         git add plugins/*/scripts/_shared/
@@ -32,5 +32,11 @@ pre-commit:
     4-verify-shared-bump:
       # Only runs when packages/hooks-shared/src/** is staged; otherwise
       # lefthook skips this command (glob miss → no-op).
-      glob: "packages/hooks-shared/src/**/*.js"
-      run: pnpm run verify-shared-bump
+      #
+      # --staged tells the script to diff the index vs HEAD (rather
+      # than HEAD~1 vs HEAD, which is meaningless in a pre-commit
+      # context where the new commit hasn't been made yet). lefthook
+      # does not set any env variable we can detect, so the CLI flag
+      # is the explicit contract.
+      glob: "packages/hooks-shared/src/*.js"
+      run: node scripts/verify-shared-bump.mjs --staged
