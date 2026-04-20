@@ -1,6 +1,6 @@
 {
   "name": "hooks-pnpm",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "pnpm enforcement - blocks npm commands in pnpm projects",
   "author": "Sangho",
   "license": "UNLICENSED",

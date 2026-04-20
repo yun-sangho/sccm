@@ -1,0 +1,36 @@
+# lefthook.yml — local pre-commit automation for sccm.
+#
+# Enforces, in order of cost:
+#   1. verify-shared  — copies under plugins/*/scripts/_shared/ must
+#                       match the canonical source in
+#                       packages/hooks-shared/src/. If only the source
+#                       changed but copies weren't synced, auto-sync
+#                       and re-stage so the commit includes the copies.
+#   2. verify-versions — the three version files per plugin must agree.
+#   3. verify-shared-bump — if packages/hooks-shared/src/** is staged,
+#                           every consumer plugin's version.must be
+#                           bumped in the same commit.
+#
+# Install: `pnpm install` runs `lefthook install` via the root prepare
+# script (see package.json). Uninstall: `lefthook uninstall`.
+
+pre-commit:
+  parallel: false
+  commands:
+    1-sync-if-canonical-changed:
+      # If the canonical source is staged, auto-regenerate synced copies
+      # and stage them too so the commit is internally consistent. A
+      # no-op when the staged change is elsewhere.
+      glob: "packages/hooks-shared/src/**/*.js"
+      run: |
+        pnpm run sync-shared
+        git add plugins/*/scripts/_shared/
+    2-verify-shared:
+      run: pnpm run verify-shared
+    3-verify-versions:
+      run: pnpm run verify-versions
+    4-verify-shared-bump:
+      # Only runs when packages/hooks-shared/src/** is staged; otherwise
+      # lefthook skips this command (glob miss → no-op).
+      glob: "packages/hooks-shared/src/**/*.js"
+      run: pnpm run verify-shared-bump

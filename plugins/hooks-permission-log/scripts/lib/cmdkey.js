@@ -45,93 +45,9 @@ const KNOWN_SUBCOMMAND_CLIS = new Set([
 // in KNOWN_SUBCOMMAND_CLIS).
 const TWO_WORD_CLIS = new Set(["docker compose"]);
 
-// Split a bash command string into top-level segments separated by
-// unquoted `&&`, `||`, `;`, `|`, or `&`. Quoted strings, backticks,
-// and `$(...)` command substitutions are treated as opaque so we do
-// not split inside them. Copied from hooks-guard/scripts/utils.js to
-// keep this plugin dependency-free.
-function splitShellChain(cmd) {
-  if (!cmd) return [];
-  const segments = [];
-  let current = "";
-  let inSingle = false;
-  let inDouble = false;
-  let backtick = false;
-  let parenDepth = 0;
-  const n = cmd.length;
-  let i = 0;
-
-  const flush = () => {
-    const t = current.trim();
-    if (t) segments.push(t);
-    current = "";
-  };
-
-  while (i < n) {
-    const c = cmd[i];
-    const next = i + 1 < n ? cmd[i + 1] : "";
-
-    if (c === "\\" && !inSingle && i + 1 < n) {
-      current += c + next;
-      i += 2;
-      continue;
-    }
-    if (c === "'" && !inDouble && !backtick && parenDepth === 0) {
-      inSingle = !inSingle;
-      current += c;
-      i++;
-      continue;
-    }
-    if (c === '"' && !inSingle) {
-      inDouble = !inDouble;
-      current += c;
-      i++;
-      continue;
-    }
-    if (!inSingle && c === "$" && next === "(") {
-      parenDepth++;
-      current += "$(";
-      i += 2;
-      continue;
-    }
-    if (parenDepth > 0 && c === ")") {
-      parenDepth--;
-      current += c;
-      i++;
-      continue;
-    }
-    if (c === "`" && !inSingle) {
-      backtick = !backtick;
-      current += c;
-      i++;
-      continue;
-    }
-    if (inSingle || inDouble || backtick || parenDepth > 0) {
-      current += c;
-      i++;
-      continue;
-    }
-    if (c === "&" && next === "&") {
-      flush();
-      i += 2;
-      continue;
-    }
-    if (c === "|" && next === "|") {
-      flush();
-      i += 2;
-      continue;
-    }
-    if (c === ";" || c === "|" || c === "&") {
-      flush();
-      i++;
-      continue;
-    }
-    current += c;
-    i++;
-  }
-  flush();
-  return segments;
-}
+// Shell-chain segmenter is shared across plugins — imported from
+// ../_shared/ which is synced from packages/hooks-shared/src/.
+const { splitShellChain } = require("../_shared/shell-chain");
 
 // Very small tokenizer: respects single/double quotes; returns the first
 // few bare tokens of a command segment, ignoring env-var assignments
