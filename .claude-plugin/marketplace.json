@@ -14,7 +14,7 @@
       "name": "hooks-guard",
       "source": "./plugins/hooks-guard",
       "description": "Security guard hooks - blocks dangerous Bash commands and sensitive file access",
-      "version": "0.5.0",
+      "version": "0.7.0",
       "author": {
         "name": "Sangho"
       },
@@ -61,7 +61,7 @@
       "name": "hooks-permission-log",
       "source": "./plugins/hooks-permission-log",
       "description": "Log permission-flow events (Pre/PermissionRequest/Post/Failure) and review them to refine sandbox and guard settings",
-      "version": "0.2.2",
+      "version": "1.0.0",
       "author": {
         "name": "Sangho"
       },

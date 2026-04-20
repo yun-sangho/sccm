@@ -41,8 +41,12 @@ const {
 
 const { LOG_DIR } = require("./lib/io");
 
-const TARGET_REPO = "yun-sangho/sccm";
-const PROPOSAL_LABEL = "permission-log-proposal";
+// Target repo and proposal label are env-var driven so a fork / downstream
+// installation does not have to patch source to file into its own tracker.
+// Precedence (all three layers): CLI flag > env var > hardcoded default.
+const TARGET_REPO = process.env.SCCM_PROPOSAL_REPO || "yun-sangho/sccm";
+const PROPOSAL_LABEL =
+  process.env.SCCM_PROPOSAL_LABEL || "permission-log-proposal";
 const SCCM_SANDBOX_LABEL = "plugin:sccm-sandbox";
 const HOOKS_GUARD_LABEL = "plugin:hooks-guard";
 
@@ -63,6 +67,7 @@ function parseArgs(argv) {
     logDir: LOG_DIR,
     presetPath: SANDBOX_PRESET_PATH,
     repo: TARGET_REPO,
+    label: PROPOSAL_LABEL,
   };
   for (const a of argv) {
     const m = /^--([a-z-]+)(?:=(.*))?$/.exec(a);
@@ -75,6 +80,7 @@ function parseArgs(argv) {
     else if (k === "log-dir") opts.logDir = v;
     else if (k === "preset") opts.presetPath = v;
     else if (k === "repo") opts.repo = v;
+    else if (k === "label") opts.label = v;
   }
   return opts;
 }
@@ -83,8 +89,11 @@ function parseArgs(argv) {
  * Build the list of proposals (both add and deny variants) from the
  * current review output. Each proposal has a stable title that the
  * dedup layer uses as its key.
+ *
+ * proposalLabel is threaded through so CLI/env overrides of the dedup
+ * label are reflected on every created issue.
  */
-function buildProposals(suggestions, windowLabel) {
+function buildProposals(suggestions, windowLabel, proposalLabel = PROPOSAL_LABEL) {
   const proposals = [];
 
   for (const a of suggestions.add) {
@@ -92,7 +101,7 @@ function buildProposals(suggestions, windowLabel) {
       kind: "add",
       cmd_key: a.cmd_key,
       title: `[sccm-sandbox] Add \`${a.cmd_key}\` to base preset`,
-      labels: [PROPOSAL_LABEL, SCCM_SANDBOX_LABEL],
+      labels: [proposalLabel, SCCM_SANDBOX_LABEL],
       body: renderAddBody(a, windowLabel),
     });
   }
@@ -102,7 +111,7 @@ function buildProposals(suggestions, windowLabel) {
       kind: "deny",
       cmd_key: d.cmd_key,
       title: `[hooks-guard] Consider blocking \`${d.cmd_key}\``,
-      labels: [PROPOSAL_LABEL, HOOKS_GUARD_LABEL],
+      labels: [proposalLabel, HOOKS_GUARD_LABEL],
       body: renderDenyBody(d, windowLabel),
     });
   }
@@ -198,7 +207,7 @@ _Filed automatically by \`/permission-log:file-proposals\`. Close this issue if 
  * error — the dry-run flow will still surface proposals, and --apply
  * will bail loudly.
  */
-function fetchExistingProposals(repo) {
+function fetchExistingProposals(repo, label = PROPOSAL_LABEL) {
   const r = spawnSync(
     "gh",
     [
@@ -207,7 +216,7 @@ function fetchExistingProposals(repo) {
       "--repo",
       repo,
       "--label",
-      PROPOSAL_LABEL,
+      label,
       "--state",
       "all",
       "--limit",
@@ -280,9 +289,9 @@ function main() {
   const suggestions = buildSuggestions(agg, preset);
 
   const windowLabel = humanWindowLabel(opts);
-  const proposals = buildProposals(suggestions, windowLabel);
+  const proposals = buildProposals(suggestions, windowLabel, opts.label);
 
-  const existing = fetchExistingProposals(opts.repo);
+  const existing = fetchExistingProposals(opts.repo, opts.label);
   if (!existing.ok && opts.apply) {
     const msg = `Failed to query existing proposals via gh: ${existing.error}\nRefusing to --apply without a working dedup check.`;
     if (opts.json) {
@@ -413,4 +422,6 @@ module.exports = {
   renderDenyBody,
   fetchExistingProposals,
   humanWindowLabel,
+  TARGET_REPO,
+  PROPOSAL_LABEL,
 };

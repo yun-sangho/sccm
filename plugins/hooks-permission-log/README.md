@@ -81,10 +81,21 @@ payload) are surfaced alongside.
 /permission-log:file-proposals --days=14
 ```
 
-Turns each suggestion into a GitHub issue at
-[yun-sangho/sccm](https://github.com/yun-sangho/sccm/issues) so the
-refinements become trackable work items instead of a report you have
-to remember to read.
+Turns each suggestion into a GitHub issue so the refinements become
+trackable work items instead of a report you have to remember to read.
+
+By default issues are filed against
+[yun-sangho/sccm](https://github.com/yun-sangho/sccm/issues), but the
+target repo and dedup label are configurable for forks / downstream
+users:
+
+| Source | Repo | Label |
+|---|---|---|
+| CLI flag | `--repo=owner/name` | `--label=my-label` |
+| Env var  | `SCCM_PROPOSAL_REPO` | `SCCM_PROPOSAL_LABEL` |
+| Default  | `yun-sangho/sccm` | `permission-log-proposal` |
+
+Precedence: CLI > env > default.
 
 - **One issue per `cmd_key`**, with a stable title.
 - **Deduplicated**: an existing issue with the same title (open **or
@@ -94,9 +105,9 @@ to remember to read.
   with the diff and sample commands.
 - **Deny proposals** get `[hooks-guard] Consider blocking \`<cmd_key>\``
   with three candidate actions.
-- Labels: `permission-log-proposal` + `plugin:sccm-sandbox` (or
+- Labels: `<PROPOSAL_LABEL>` + `plugin:sccm-sandbox` (or
   `plugin:hooks-guard`).
-- Requires `gh` CLI authenticated against yun-sangho/sccm. Dry-run
+- Requires `gh` CLI authenticated against the target repo. Dry-run
   works without auth; `--apply` refuses if the dedup query fails.
 
 The command always dry-runs first and asks for confirmation before
@@ -112,6 +123,46 @@ filing. Safe to re-run — duplicates are skipped.
 5. Close the issue once merged.
 6. A week later, the same cmd_keys won't be refiled (closed issue =
    already decided). New cmd_keys show up as fresh issues.
+
+## JSONL schema (v2)
+
+Every line written by `log-event.js` carries the v2 shape:
+
+```jsonc
+{
+  "schema_version": 2,
+  "ts": "2026-04-16T12:34:56.000Z",
+  "event": "permission_denied",           // or "post" | "post_failure" | "permission_request"
+  "session_id": "sess_…",
+  "tool_use_id": "toolu_…",
+  "cwd": "/workspace",
+  "permission_mode": "default",
+  "hook_event_name": "PermissionDenied",
+  "tool": "Bash",
+  "cmd": "curl -H 'Authorization: Bearer <redacted>' …",
+  "cmd_key": "curl",
+
+  // v2-specific — always present:
+  "decision": "deny",                      // "allow" | "confirm" | "deny"
+  "reason": "matched token= rule",         // human-readable
+  "rule_id": "hooks-guard:env-file"        // present when inferable
+
+  // event-specific extras, when applicable:
+  // "error": "...", "is_interrupt": false,
+  // "permission_suggestions": [...],
+}
+```
+
+### Migration from v1
+
+On the first v2 write of a process, any un-versioned `.jsonl` files
+sitting in `.claude/permission-logs/` are moved into
+`.claude/permission-logs/v1/`. Your data is never deleted — just
+quarantined so a single file never mixes schemas.
+
+`review.js` reads both directories and synthesizes a compatible
+`decision` / `reason` / `rule_id` triple for v1 lines so historical
+data still populates the aggregation.
 
 ## Privacy
 

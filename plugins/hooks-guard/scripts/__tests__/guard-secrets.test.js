@@ -870,5 +870,146 @@ describe("guard-secrets", () => {
       const result = loadUserEnvRefAllowCommands();
       assert.deepEqual(result, []);
     });
+
+    // ── Canonical vs legacy config filename ──
+
+    function writeNamedConfig(baseDir, filename, commands) {
+      const dir = path.join(baseDir, ".claude");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, filename),
+        JSON.stringify({ envRefAllowCommands: commands })
+      );
+    }
+
+    it("loads canonical hooks-guard.config.json", () => {
+      writeNamedConfig(tmpProject, "hooks-guard.config.json", [
+        "canonical-cmd .env",
+      ]);
+      process.env.CLAUDE_PROJECT_DIR = tmpProject;
+      process.env.HOME = tmpHome;
+      const result = loadUserEnvRefAllowCommands();
+      assert.deepEqual(result, ["canonical-cmd .env"]);
+    });
+
+    it("legacy guard-secrets.config.json still works when no canonical exists", () => {
+      writeNamedConfig(tmpProject, "guard-secrets.config.json", [
+        "legacy-cmd .env",
+      ]);
+      process.env.CLAUDE_PROJECT_DIR = tmpProject;
+      process.env.HOME = tmpHome;
+      const result = loadUserEnvRefAllowCommands();
+      assert.deepEqual(result, ["legacy-cmd .env"]);
+    });
+
+    it("canonical beats legacy in the same .claude/ directory", () => {
+      writeNamedConfig(tmpProject, "hooks-guard.config.json", [
+        "canonical-cmd .env",
+      ]);
+      writeNamedConfig(tmpProject, "guard-secrets.config.json", [
+        "legacy-cmd .env",
+      ]);
+      process.env.CLAUDE_PROJECT_DIR = tmpProject;
+      process.env.HOME = tmpHome;
+      const result = loadUserEnvRefAllowCommands();
+      assert.deepEqual(result, ["canonical-cmd .env"]);
+    });
+
+    it("project canonical beats user legacy (cross-scope precedence)", () => {
+      writeNamedConfig(tmpProject, "hooks-guard.config.json", ["proj-cmd .env"]);
+      writeNamedConfig(tmpHome, "guard-secrets.config.json", ["user-legacy .env"]);
+      process.env.CLAUDE_PROJECT_DIR = tmpProject;
+      process.env.HOME = tmpHome;
+      const result = loadUserEnvRefAllowCommands();
+      assert.deepEqual(result, ["proj-cmd .env"]);
+    });
+
+    it("project legacy beats user canonical (project always wins, even via legacy name)", () => {
+      writeNamedConfig(tmpProject, "guard-secrets.config.json", ["proj-legacy .env"]);
+      writeNamedConfig(tmpHome, "hooks-guard.config.json", ["user-canonical .env"]);
+      process.env.CLAUDE_PROJECT_DIR = tmpProject;
+      process.env.HOME = tmpHome;
+      const result = loadUserEnvRefAllowCommands();
+      assert.deepEqual(result, ["proj-legacy .env"]);
+    });
+  });
+
+  // ── Symlink canonicalization (OpenHarness parity) ──
+  //
+  // These tests create real symlinks on disk so the realpathSync call in
+  // resolvePath() actually runs. They verify that both the raw name and
+  // the resolved target are evaluated against SENSITIVE_FILES /
+  // ENV_DOTFILE — closing the loophole where an attacker-ish agent
+  // symlinks an innocent-sounding name to a sensitive target.
+  describe("symlink canonicalization", () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hooks-guard-sym-"));
+      _resetEnvRefCache();
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      _resetEnvRefCache();
+    });
+
+    it("Read on a symlink whose target matches id_rsa is blocked", () => {
+      const target = path.join(tmpDir, "id_rsa");
+      const link = path.join(tmpDir, "harmless-note.txt");
+      fs.writeFileSync(target, "private-key-content");
+      fs.symlinkSync(target, link);
+
+      const result = checkFilePath(link);
+      assert.equal(result.blocked, true);
+      assert.match(result.pattern.id, /ssh-private-key/);
+    });
+
+    it("Read on a symlink whose target matches .env is blocked", () => {
+      const target = path.join(tmpDir, ".env");
+      const link = path.join(tmpDir, "innocuous.txt");
+      fs.writeFileSync(target, "SECRET=1");
+      fs.symlinkSync(target, link);
+
+      const result = checkFilePath(link);
+      assert.equal(result.blocked, true);
+      assert.equal(result.pattern.id, "env-file");
+    });
+
+    it(".env.example symlinked to id_rsa is blocked (resolved wins over raw allowlist)", () => {
+      const target = path.join(tmpDir, "id_rsa");
+      const link = path.join(tmpDir, ".env.example");
+      fs.writeFileSync(target, "private-key-content");
+      fs.symlinkSync(target, link);
+
+      const result = checkFilePath(link);
+      assert.equal(result.blocked, true);
+      assert.match(result.pattern.id, /ssh-private-key/);
+    });
+
+    it("a plain .env.example file (no symlink) still passes via allowlist", () => {
+      const file = path.join(tmpDir, ".env.example");
+      fs.writeFileSync(file, "EXAMPLE=1");
+
+      const result = checkFilePath(file);
+      assert.equal(result.blocked, false);
+    });
+
+    it("Bash: cat on a symlink resolving to .env is blocked by generic-env-ref", () => {
+      const target = path.join(tmpDir, ".env");
+      const link = path.join(tmpDir, "plain-file");
+      fs.writeFileSync(target, "SECRET=1");
+      fs.symlinkSync(target, link);
+
+      const result = checkEnvFileReference(`grep SECRET ${link}`);
+      assert.equal(result.blocked, true);
+      assert.equal(result.pattern.id, "generic-env-ref");
+    });
+
+    it("nonexistent path does not throw and does not block a neutral name", () => {
+      const bogus = path.join(tmpDir, "does-not-exist");
+      const result = checkFilePath(bogus);
+      assert.equal(result.blocked, false);
+    });
   });
 });

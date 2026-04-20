@@ -11,6 +11,8 @@ const {
   groupEvents,
   classifyGroup,
   aggregate,
+  aggregateDecisions,
+  synthDecision,
   loadPresetAllowSet,
   isCovered,
   patternsForKey,
@@ -400,4 +402,120 @@ test("renderMarkdown: contains diff when suggestions exist", () => {
 test("cutoffDate: returns ISO date string", () => {
   const d = cutoffDate(7);
   assert.match(d, /^\d{4}-\d{2}-\d{2}$/);
+});
+
+// ── v1 / v2 coexistence ──
+
+test("synthDecision: v2 event passes through unchanged", () => {
+  const e = {
+    schema_version: 2,
+    event: "post",
+    decision: "allow",
+    reason: "tool ran",
+  };
+  assert.strictEqual(synthDecision(e), e);
+});
+
+test("synthDecision: v1 post → decision=allow + rule_id", () => {
+  const e = { event: "post", permission_mode: "default" };
+  const out = synthDecision(e);
+  assert.strictEqual(out.decision, "allow");
+  assert.strictEqual(out.reason, "tool ran");
+  assert.strictEqual(out.rule_id, "claude.permission_mode=default");
+  assert.strictEqual(out.schema_version, 1);
+});
+
+test("synthDecision: v1 permission_request → decision=confirm (no rule_id)", () => {
+  const out = synthDecision({ event: "permission_request" });
+  assert.strictEqual(out.decision, "confirm");
+  assert.ok(!("rule_id" in out));
+});
+
+test("synthDecision: v1 permission_denied → decision=deny + preserved reason", () => {
+  const out = synthDecision({ event: "permission_denied", reason: "blocked!" });
+  assert.strictEqual(out.decision, "deny");
+  assert.strictEqual(out.reason, "blocked!");
+});
+
+test("readEvents: merges v1 (LOG_DIR_V1) + v2 (LOG_DIR) files", () => {
+  const dir = tmpLogDir();
+  const v1dir = path.join(dir, "v1");
+  fs.mkdirSync(v1dir, { recursive: true });
+
+  // v1-style line (no schema_version)
+  write(v1dir, `${today()}.jsonl`, [
+    mkEvent({
+      event: "post",
+      tool_use_id: "v1_a",
+      cmd_key: "ls",
+      permission_mode: "default",
+    }),
+  ]);
+
+  // v2-style line
+  write(dir, `${today()}.jsonl`, [
+    mkEvent({
+      schema_version: 2,
+      event: "permission_denied",
+      tool_use_id: "v2_a",
+      cmd_key: "rm",
+      decision: "deny",
+      reason: "too dangerous",
+      rule_id: "hooks-guard:rm-root",
+    }),
+  ]);
+
+  const events = readEvents(dir, null, v1dir);
+  assert.strictEqual(events.length, 2);
+  // v1 got synthesized
+  const v1 = events.find((e) => e.tool_use_id === "v1_a");
+  assert.strictEqual(v1.decision, "allow");
+  // v2 preserved
+  const v2 = events.find((e) => e.tool_use_id === "v2_a");
+  assert.strictEqual(v2.decision, "deny");
+  assert.strictEqual(v2.rule_id, "hooks-guard:rm-root");
+});
+
+test("aggregateDecisions: groups by rule_id with allow/confirm/deny tally", () => {
+  const events = [
+    { decision: "allow", rule_id: "claude.permission_mode=default", reason: "tool ran" },
+    { decision: "allow", rule_id: "claude.permission_mode=default", reason: "tool ran" },
+    { decision: "confirm", rule_id: null, reason: "user prompt requested" },
+    { decision: "deny", rule_id: "hooks-guard:env-file", reason: "blocked .env" },
+    { decision: "deny", rule_id: "hooks-guard:env-file", reason: "blocked .env" },
+  ];
+  const rows = aggregateDecisions(events);
+  const modeRow = rows.find((r) => r.rule_id === "claude.permission_mode=default");
+  const denyRow = rows.find((r) => r.rule_id === "hooks-guard:env-file");
+  const confirmRow = rows.find((r) => r.rule_id === "(none)");
+
+  assert.strictEqual(modeRow.allow, 2);
+  assert.strictEqual(denyRow.deny, 2);
+  assert.strictEqual(confirmRow.confirm, 1);
+  // sorted by total descending — first row has the most events
+  assert.ok(
+    rows[0].allow + rows[0].confirm + rows[0].deny >=
+      rows[rows.length - 1].allow + rows[rows.length - 1].confirm + rows[rows.length - 1].deny
+  );
+});
+
+test("renderMarkdown: includes Decision breakdown table when decisions is non-empty", () => {
+  const events = [
+    { decision: "deny", rule_id: "hooks-guard:env-file", reason: "blocked .env" },
+  ];
+  const agg = aggregate({ groups: [], orphans: [] });
+  const preset = { allow: new Set(), excluded: new Set(), missing: false };
+  const sugg = { add: [], denies: [] };
+  const decisions = aggregateDecisions(events);
+
+  const md = renderMarkdown(
+    { days: 7, since: null },
+    agg,
+    sugg,
+    preset,
+    [],
+    decisions
+  );
+  assert.match(md, /Decision breakdown/);
+  assert.match(md, /hooks-guard:env-file/);
 });

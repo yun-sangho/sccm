@@ -1,12 +1,12 @@
 ---
-description: "Add or remove exact-match command exceptions for the .env reference guard. Manages guard-secrets.config.json at project or user scope."
+description: "Add or remove exact-match command exceptions for the .env reference guard. Manages hooks-guard.config.json at project or user scope."
 argument-hint: "<add|remove> <exact-command> [--project|--user]"
 allowed-tools: Read, Write, Bash(node:*)
 ---
 
 The user wants to **add or remove** an exact-match exception from the
 `.env` reference guard's user config. This command edits
-`guard-secrets.config.json` directly via the Read and Write tools (never
+`hooks-guard.config.json` directly via the Read and Write tools (never
 via Bash) to avoid the guard hook itself blocking the operation.
 
 ## How the two-layer matching works
@@ -28,14 +28,18 @@ blocked. This is by design — maximum tightness.
 ## Plugin identity
 
 - Plugin name: `hooks-guard`
-- Config filename: `guard-secrets.config.json`
+- Config filename: `hooks-guard.config.json` (canonical)
+- Legacy filename: `guard-secrets.config.json` — still read at runtime
+  for backwards compatibility; this command writes to the canonical name.
 
 ## Config file locations (first found wins at runtime)
 
 | Priority | Scope | Path |
 |---|---|---|
-| 1 (highest) | project | `{CLAUDE_PROJECT_DIR}/.claude/guard-secrets.config.json` |
-| 2 | user | `~/.claude/guard-secrets.config.json` |
+| 1 (highest) | project | `{CLAUDE_PROJECT_DIR}/.claude/hooks-guard.config.json` |
+| 2 | project (legacy) | `{CLAUDE_PROJECT_DIR}/.claude/guard-secrets.config.json` |
+| 3 | user | `~/.claude/hooks-guard.config.json` |
+| 4 | user (legacy) | `~/.claude/guard-secrets.config.json` |
 
 If no config file exists, there are zero user exceptions (only built-in
 defaults apply).
@@ -67,16 +71,22 @@ defaults apply).
 
 2. **Determine the config file path.**
 
-   - If scope is `project`: use `${CLAUDE_PROJECT_DIR}/.claude/guard-secrets.config.json`
+   - If scope is `project`: use `${CLAUDE_PROJECT_DIR}/.claude/hooks-guard.config.json`
      (if `CLAUDE_PROJECT_DIR` is not set, use the current working directory)
-   - If scope is `user`: use `~/.claude/guard-secrets.config.json`
+   - If scope is `user`: use `~/.claude/hooks-guard.config.json`
 
    Resolve `~` to the actual home directory path.
 
 3. **Read the existing config file** using the Read tool.
 
-   - If the file exists, parse the JSON. Extract `envRefAllowCommands` array.
-   - If the file does NOT exist, start with an **empty array** `[]`.
+   - If the canonical file `hooks-guard.config.json` exists at the chosen
+     scope, parse the JSON and extract `envRefAllowCommands`.
+   - Else if the legacy file `guard-secrets.config.json` exists at the
+     same scope, read from it. Treat its contents as the starting point,
+     but **write to the canonical filename** in step 6. Tell the user
+     at the end that the legacy file was read and can be deleted once
+     they have verified the new canonical file is correct.
+   - Else, start with an **empty array** `[]`.
      (Built-in defaults are always active separately — they are not in
      this config file.)
 
@@ -93,7 +103,7 @@ defaults apply).
 
    Display a brief summary:
    ```
-   Scope:   project (.claude/guard-secrets.config.json)
+   Scope:   project (.claude/hooks-guard.config.json)
    Action:  add "grep SECRET .env"
    Match:   exact (only this exact command will pass)
    Result:  2 -> 3 entries
@@ -131,7 +141,7 @@ defaults apply).
   monitors Bash commands, and a Bash command containing `.env` in its
   arguments would be blocked by the very guard we're configuring. Always
   use the Read and Write tools for file I/O.
-- Do not modify any other file. Only touch `guard-secrets.config.json`.
+- Do not modify any other file. Only touch `hooks-guard.config.json`.
 - Do not show the user's entire existing config unless they ask — it may
   be long.
 - If the config file has extra keys beyond `envRefAllowCommands`, preserve

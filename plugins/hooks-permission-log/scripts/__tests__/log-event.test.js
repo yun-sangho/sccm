@@ -190,3 +190,131 @@ test("log-event: pre event is rejected (not in the 4-hook set)", () => {
   assert.strictEqual(res.status, 0);
   assert.strictEqual(readLogLines(dir).length, 0);
 });
+
+// ── v2 schema: every line carries schema_version + decision + reason ──
+
+test("log-event v2: post event has schema_version=2, decision=allow, reason", () => {
+  const dir = makeTmpProject();
+  runLogEvent(
+    "post",
+    {
+      tool_name: "Bash",
+      tool_input: { command: "ls" },
+      tool_use_id: "v2_post",
+      session_id: "sess_v2",
+      permission_mode: "default",
+    },
+    dir
+  );
+  const [entry] = readLogLines(dir);
+  assert.strictEqual(entry.schema_version, 2);
+  assert.strictEqual(entry.decision, "allow");
+  assert.strictEqual(entry.reason, "tool ran");
+  assert.strictEqual(entry.rule_id, "claude.permission_mode=default");
+});
+
+test("log-event v2: permission_request decision=confirm (no rule_id)", () => {
+  const dir = makeTmpProject();
+  runLogEvent(
+    "permission_request",
+    {
+      tool_name: "Bash",
+      tool_input: { command: "tree" },
+      session_id: "sess_v2",
+    },
+    dir
+  );
+  const [entry] = readLogLines(dir);
+  assert.strictEqual(entry.schema_version, 2);
+  assert.strictEqual(entry.decision, "confirm");
+  assert.strictEqual(entry.reason, "user prompt requested");
+  assert.ok(!("rule_id" in entry), "rule_id should be omitted for confirm");
+});
+
+test("log-event v2: permission_denied decision=deny + redacted reason", () => {
+  const dir = makeTmpProject();
+  runLogEvent(
+    "permission_denied",
+    {
+      tool_name: "Bash",
+      tool_input: { command: "curl -H 'Authorization: Bearer sk-secret' x" },
+      tool_use_id: "v2_deny",
+      session_id: "sess_v2",
+      reason: "matched token=supersecret rule",
+      rule_id: "hooks-guard:generic-env-ref",
+    },
+    dir
+  );
+  const [entry] = readLogLines(dir);
+  assert.strictEqual(entry.schema_version, 2);
+  assert.strictEqual(entry.decision, "deny");
+  assert.ok(!entry.reason.includes("supersecret"));
+  assert.match(entry.reason, /token=<redacted>/);
+  assert.strictEqual(entry.rule_id, "hooks-guard:generic-env-ref");
+});
+
+test("log-event v2: post_failure reason='tool ran then failed'", () => {
+  const dir = makeTmpProject();
+  runLogEvent(
+    "post_failure",
+    {
+      tool_name: "Bash",
+      tool_input: { command: "false" },
+      tool_use_id: "v2_fail",
+      session_id: "sess_v2",
+      error: "exited 1",
+      is_interrupt: false,
+    },
+    dir
+  );
+  const [entry] = readLogLines(dir);
+  assert.strictEqual(entry.schema_version, 2);
+  assert.strictEqual(entry.decision, "allow");
+  assert.strictEqual(entry.reason, "tool ran then failed");
+  assert.strictEqual(entry.error, "exited 1");
+  assert.strictEqual(entry.is_interrupt, false);
+});
+
+// ── v1 archival on first v2 write ──
+
+test("log-event v2: archives pre-existing v1 .jsonl into v1/", () => {
+  const dir = makeTmpProject();
+  const logDir = path.join(dir, ".claude", "permission-logs");
+  fs.mkdirSync(logDir, { recursive: true });
+  // A v1-shaped line (no schema_version). Filename matches the YYYY-MM-DD
+  // pattern that listLogFiles() expects.
+  const yesterday = "2024-01-01";
+  const v1File = path.join(logDir, `${yesterday}.jsonl`);
+  fs.writeFileSync(
+    v1File,
+    JSON.stringify({ ts: "2024-01-01T00:00:00Z", event: "post", tool: "Bash", cmd: "ls", cmd_key: "ls" }) +
+      "\n"
+  );
+
+  runLogEvent(
+    "post",
+    {
+      tool_name: "Bash",
+      tool_input: { command: "pwd" },
+      tool_use_id: "v2_first",
+      session_id: "sess_arch",
+    },
+    dir
+  );
+
+  // Original v1 file moved into v1/ subdir
+  assert.ok(
+    fs.existsSync(path.join(logDir, "v1", `${yesterday}.jsonl`)),
+    "v1 file should be moved into v1/ subdir"
+  );
+  assert.ok(
+    !fs.existsSync(v1File),
+    "original v1 file should no longer exist in top-level LOG_DIR"
+  );
+  // A fresh v2 file was written (today)
+  const today = new Date().toISOString().slice(0, 10);
+  assert.ok(
+    fs.existsSync(path.join(logDir, `${today}.jsonl`)),
+    "new v2 file should be created at today's date"
+  );
+});

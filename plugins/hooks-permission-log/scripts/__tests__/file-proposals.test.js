@@ -130,6 +130,46 @@ test("parseArgs: --apply toggles", () => {
   );
 });
 
+test("parseArgs: --label overrides default", () => {
+  assert.strictEqual(
+    parseArgs(["--label=my-label"]).label,
+    "my-label"
+  );
+});
+
+test("env vars feed defaults for repo + label (CLI takes precedence)", () => {
+  // Run a fresh child process so we pick up the env-var-driven module
+  // initialization. Module caching in the current process would keep the
+  // default constants bound to the value they had at first require.
+  const inlineScript = `
+const { parseArgs, TARGET_REPO, PROPOSAL_LABEL } = require(${JSON.stringify(SCRIPT)});
+const defaults = parseArgs([]);
+const override = parseArgs(["--repo=override/repo", "--label=cli-label"]);
+process.stdout.write(JSON.stringify({
+  TARGET_REPO, PROPOSAL_LABEL,
+  defaults: { repo: defaults.repo, label: defaults.label },
+  override: { repo: override.repo, label: override.label },
+}));
+`;
+  const res = spawnSync(process.execPath, ["-e", inlineScript], {
+    env: {
+      ...process.env,
+      SCCM_PROPOSAL_REPO: "env-owner/env-repo",
+      SCCM_PROPOSAL_LABEL: "env-label",
+    },
+    encoding: "utf8",
+  });
+  assert.strictEqual(res.status, 0, res.stderr);
+  const out = JSON.parse(res.stdout);
+  assert.strictEqual(out.TARGET_REPO, "env-owner/env-repo");
+  assert.strictEqual(out.PROPOSAL_LABEL, "env-label");
+  assert.strictEqual(out.defaults.repo, "env-owner/env-repo");
+  assert.strictEqual(out.defaults.label, "env-label");
+  // CLI > env
+  assert.strictEqual(out.override.repo, "override/repo");
+  assert.strictEqual(out.override.label, "cli-label");
+});
+
 test("humanWindowLabel: since vs days", () => {
   assert.strictEqual(
     humanWindowLabel({ since: "2026-04-01", days: 7 }),
