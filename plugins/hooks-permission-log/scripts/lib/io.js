@@ -2,12 +2,17 @@
 /**
  * I/O helpers for hooks-permission-log.
  *
- * Kept dependency-free and self-contained so the plugin can run from
- * the marketplace install location without reaching into sibling
- * plugins at runtime.
+ * Cross-plugin primitives (readStdin, appendJsonl's raw IO) are
+ * imported from ../_shared/, which is synced from
+ * packages/hooks-shared/src/ by scripts/sync-shared.mjs. Plugin-
+ * specific logic — schema versioning, v1 archival, redaction — stays
+ * here.
  */
 const fs = require("fs");
 const path = require("path");
+
+const { readStdin: _sharedReadStdin } = require("../_shared/stdin");
+const { appendJsonl: _sharedAppendJsonl } = require("../_shared/logging");
 
 // Schema version of the JSONL events this plugin writes. Bumped from
 // the implicit v1 (un-versioned, fields: ts/event/tool/cmd/cmd_key/...)
@@ -61,12 +66,7 @@ function truncate(s, n = MAX_CMD_LEN) {
   return s.slice(0, n) + "…";
 }
 
-async function readStdin() {
-  let input = "";
-  for await (const chunk of process.stdin) input += chunk;
-  if (!input.trim()) return {};
-  return JSON.parse(input);
-}
+const readStdin = _sharedReadStdin;
 
 // Move un-versioned .jsonl files sitting in LOG_DIR into LOG_DIR/v1/ so
 // the first v2 write of the process starts a clean v2-only file. A file
@@ -119,17 +119,8 @@ function _resetArchiveFlag() {
 }
 
 function appendJsonl(entry) {
-  try {
-    if (entry && entry.schema_version === SCHEMA_VERSION) archiveV1Once();
-    if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
-    const file = path.join(
-      LOG_DIR,
-      `${new Date().toISOString().slice(0, 10)}.jsonl`
-    );
-    fs.appendFileSync(file, JSON.stringify(entry) + "\n");
-  } catch {
-    // Never disturb the hook chain — swallow IO failures.
-  }
+  if (entry && entry.schema_version === SCHEMA_VERSION) archiveV1Once();
+  _sharedAppendJsonl(LOG_DIR, entry);
 }
 
 module.exports = {

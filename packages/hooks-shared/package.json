@@ -1,0 +1,9 @@
+{
+  "name": "@sccm/hooks-shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Canonical source for utilities shared across sccm hook plugins. Synced into plugins/<name>/scripts/_shared/ at dev time; never published.",
+  "scripts": {
+    "test": "node --test '__tests__/*.test.js'"
+  }
+}

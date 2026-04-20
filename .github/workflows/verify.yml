@@ -1,0 +1,48 @@
+name: verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need full history so verify-shared-bump can diff against base.
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: verify-shared (no drift between canonical and _shared copies)
+        run: pnpm run verify-shared
+
+      - name: verify-versions (plugin.json / marketplace.json / package.json agree)
+        run: pnpm run verify-versions
+
+      - name: verify-shared-bump (PR only — enforce version bump when shared changed)
+        if: github.event_name == 'pull_request'
+        run: pnpm run verify-shared-bump
+
+      - name: Run full test suite
+        run: pnpm test
+
+      - name: Validate plugin manifests
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          for plugin in hooks-guard hooks-pnpm hooks-worktree hooks-permission-log sccm-sandbox; do
+            echo "::group::Validating $plugin"
+            claude plugin validate plugins/$plugin
+            echo "::endgroup::"
+          done
